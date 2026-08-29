@@ -1,0 +1,35 @@
+services:
+  windows:
+    image: dockurr/windows
+    container_name: radiobot-windows-build
+    environment:
+      VERSION: "2022"
+      LANGUAGE: "English"
+      CUSTOM: "Y"
+      USERNAME: "builder"
+      PASSWORD: "builder"
+      RAM_SIZE: "8G"
+      CPU_CORES: "4"
+      DISK_SIZE: "64G"
+      # Expose SSH (22) from the VM when user-mode networking is active.
+      # In the default bridge mode, all container ports are forwarded to the VM
+      # automatically; this acts as a fallback.
+      USER_PORTS: "22"
+    devices:
+      - /dev/kvm
+      - /dev/net/tun
+    cap_add:
+      - NET_ADMIN
+    ports:
+      - "8006:8006"   # web VNC/noVNC
+      - "3389:3389/tcp" # RDP
+      - "3389:3389/udp"
+      - "2222:22"     # SSH into the Windows VM
+    volumes:
+      # VM disk and state persistence
+      - ./windows-storage:/storage
+      # Post-install OEM scripts (install.bat runs after Windows setup)
+      - ./windows-oem:/oem
+      # Shared folder with the host. Appears as Z:\ inside the VM.
+      - .:/shared
+    stop_grace_period: 2m

@@ -55,6 +55,8 @@
 typedef unsigned int pid_t;
 #define getpid GetCurrentProcessId
 #define S_ISDIR(x) (x & _S_IFDIR)
+#else
+#include <unistd.h>
 #endif
 
 int _zip_mkstemp(char *path)

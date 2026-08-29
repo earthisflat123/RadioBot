@@ -25,13 +25,6 @@
 #define TIXML_USE_STL
 #include "twitter.h"
 #include <libjson.h>
-#if defined(WIN32)
-	#if defined(DEBUG)
-	#pragma comment(lib, "libjson_d.lib")
-	#else
-	#pragma comment(lib, "libjson.lib")
-	#endif
-#endif
 
 const char * months[] = { "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec" };
 int MonToInt(const char * mon) {

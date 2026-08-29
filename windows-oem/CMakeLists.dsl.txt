@@ -1,0 +1,81 @@
+cmake_minimum_required(VERSION 3.20)
+project(DSL_RadioBot LANGUAGES C CXX)
+
+set(CMAKE_CXX_STANDARD 14)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
+# vcpkg installed tree
+set(DSL_ROOT "C:/DSL" CACHE PATH "DSL source root")
+set(DEPS_ROOT "C:/vcpkg/installed/x86-windows" CACHE PATH "vcpkg installed tree")
+
+include_directories(
+    "${DSL_ROOT}"
+    "${DEPS_ROOT}/include"
+    "${DEPS_ROOT}/include/mysql"
+)
+
+link_directories("${DEPS_ROOT}/lib")
+
+# DSL public headers
+file(GLOB DSL_HEADERS "${DSL_ROOT}/drift/*.h")
+
+# Core DSL sources
+file(GLOB DSL_CORE         "${DSL_ROOT}/src/*.cpp")
+file(GLOB DSL_WIN32        "${DSL_ROOT}/src/win32/*.cpp")
+file(GLOB DSL_ALGO         "${DSL_ROOT}/src/algo/*.cpp")
+file(GLOB DSL_MYSQL        "${DSL_ROOT}/src/mysql/*.cpp")
+file(GLOB DSL_SQLITE       "${DSL_ROOT}/src/sqlite/*.cpp")
+file(GLOB DSL_OPENSSL      "${DSL_ROOT}/src/openssl/*.cpp")
+
+set(DSL_SOURCES
+    ${DSL_CORE}
+    ${DSL_WIN32}
+    ${DSL_ALGO}
+    ${DSL_MYSQL}
+    ${DSL_SQLITE}
+    ${DSL_OPENSSL}
+    ${DSL_HEADERS}
+)
+
+# exclude curl/physfs/sodium/gnutls/libevent modules we don't need
+list(FILTER DSL_SOURCES EXCLUDE REGEX "/src/(curl|physfs|sodium|gnutls|libevent)/")
+list(FILTER DSL_SOURCES EXCLUDE REGEX "/src/download_curl\\.cpp$")
+
+add_library(ibdsl STATIC ${DSL_SOURCES})
+
+target_compile_definitions(ibdsl PRIVATE
+    DSL_STATIC
+    WIN32
+    _WINDOWS
+    NOMINMAX
+    _CRT_SECURE_NO_WARNINGS
+    ENABLE_ZLIB
+    ENABLE_SSL
+    ENABLE_OPENSSL
+    ENABLE_MYSQL
+    ENABLE_SQLITE
+    MEMLEAK
+)
+
+# Find the actual library names on this vcpkg installation
+find_library(ZLIB_LIB       NAMES z zlib zlibd PATHS "${DEPS_ROOT}/lib" NO_DEFAULT_PATH)
+find_library(SSL_LIB        NAMES libssl     PATHS "${DEPS_ROOT}/lib" NO_DEFAULT_PATH)
+find_library(CRYPTO_LIB     NAMES libcrypto  PATHS "${DEPS_ROOT}/lib" NO_DEFAULT_PATH)
+find_library(MYSQL_LIB      NAMES libmysql   libmariadb libmysqlclient PATHS "${DEPS_ROOT}/lib" NO_DEFAULT_PATH)
+find_library(SQLITE_LIB     NAMES sqlite3    PATHS "${DEPS_ROOT}/lib" NO_DEFAULT_PATH)
+
+target_link_libraries(ibdsl
+    ${ZLIB_LIB}
+    ${SSL_LIB}
+    ${CRYPTO_LIB}
+    ${MYSQL_LIB}
+    ${SQLITE_LIB}
+    ws2_32
+    crypt32
+    winmm
+)
+
+set_target_properties(ibdsl PROPERTIES
+    ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+    LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
+)

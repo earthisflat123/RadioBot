@@ -35,6 +35,11 @@ docker-compose.yml
 docker-compose.override.yml
 .dockerignore
 data/
+
+# Headless Windows build
+windows-storage/
+windows-oem/
+artifacts/
 demo-*.tape
 demo-whiptail.gif
 demo-*.gif

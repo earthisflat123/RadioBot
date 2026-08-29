@@ -1,0 +1,3 @@
+[submodule "v5/Plugins/MeshCore/driftmeshcore"]
+	path = v5/Plugins/MeshCore/driftmeshcore
+	url = https://github.com/DriftSolutions/meshcore

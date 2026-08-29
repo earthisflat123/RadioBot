@@ -135,19 +135,8 @@ bool FFMPEG_Encoder::Init(int channels, int samplerate, float scale) {
 	}
 
 #ifdef FFMPEG_USE_CH_LAYOUT
-	const AVChannelLayout * best = NULL;
-	const AVChannelLayout * p = codec->ch_layouts;
-	while (p != NULL && p->nb_channels) {
-		if (p->nb_channels == channels) {
-			best = p;
-		}
-		p++;
-	}
-	if (best == NULL) {
-		adapi->botapi->ib_printf(_("AutoDJ (ffmpeg_encoder) -> Error finding matching channel layout!\n"));
-		Close();
-		return false;
-	}
+	AVChannelLayout best;
+	av_channel_layout_default(&best, channels);
 #endif
 
 	AVStream *st = avformat_new_stream(oc, codec);
@@ -171,7 +160,7 @@ bool FFMPEG_Encoder::Init(int channels, int samplerate, float scale) {
 	c->sample_rate = adapi->GetOutputSample();
 	c->sample_fmt = AV_SAMPLE_FMT_S16;
 #ifdef FFMPEG_USE_CH_LAYOUT
-	av_channel_layout_copy(&c->ch_layout, best);
+	av_channel_layout_copy(&c->ch_layout, &best);
 #else
 	uint64_t layout = (channels == 1) ? AV_CH_LAYOUT_MONO : AV_CH_LAYOUT_STEREO;
 	c->channel_layout = layout;
