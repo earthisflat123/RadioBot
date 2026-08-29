@@ -5,6 +5,7 @@ $ErrorActionPreference = "Stop"
 $SrcRoot = "C:\RadioBot\deps-src\faac"
 $BuildDir = "$SrcRoot\libfaac\build"
 $FaacTag = "faac-1.50"
+$env:Path = "C:\Program Files\Git\bin;$env:Path"
 
 if (-not (Test-Path "$SrcRoot\include\faac.h")) {
     New-Item -ItemType Directory -Force -Path (Split-Path $SrcRoot) | Out-Null

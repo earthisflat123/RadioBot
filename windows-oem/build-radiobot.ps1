@@ -24,6 +24,8 @@ param(
 
 $ErrorActionPreference = "Stop"
 
+$env:Path = "C:\Program Files\Git\bin;$env:Path"
+
 $Log = "C:\OEM\build-radio.log"
 $Sln = "$RepoDir\IRCBot\IRCBot.sln"
 $VcpkgRoot = "C:\vcpkg\installed\x86-windows"
