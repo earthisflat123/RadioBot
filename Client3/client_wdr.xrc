@@ -9,12 +9,12 @@
     <object class="wxBoxSizer">
         <orient>wxVERTICAL</orient>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+            <flag>wxGROW|wxALL</flag>
             <border>5</border>
             <object class="wxBoxSizer">
                 <orient>wxHORIZONTAL</orient>
                 <object class="sizeritem">
-                    <flag>wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxALL</flag>
                     <border>5</border>
                     <object class="wxComboBox" name="ID_COMBO">
                         <size>140,-1</size>
@@ -25,7 +25,7 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxALL</flag>
                     <border>10</border>
                     <object class="wxStaticText" name="ID_TEXT">
                         <style>wxALIGN_RIGHT</style>
@@ -33,7 +33,7 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxALL</flag>
                     <border>5</border>
                     <object class="wxTextCtrl" name="ID_TEXTCTRL">
                         <size>100,-1</size>
@@ -41,7 +41,7 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxALL</flag>
                     <border>10</border>
                     <object class="wxStaticText" name="ID_TEXT">
                         <style>wxALIGN_RIGHT</style>
@@ -49,7 +49,7 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxALL</flag>
                     <border>5</border>
                     <object class="wxTextCtrl" name="ID_TEXTCTRL">
                         <size>100,-1</size>
@@ -57,7 +57,6 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxALIGN_CENTER_HORIZONTAL</flag>
                     <border>5</border>
                     <object class="wxBoxSizer">
                         <orient>wxVERTICAL</orient>
@@ -80,18 +79,18 @@
             </object>
         </object>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL</flag>
+            <flag>wxGROW</flag>
             <border>10</border>
             <object class="wxBoxSizer">
                 <orient>wxHORIZONTAL</orient>
                 <object class="sizeritem">
-                    <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL</flag>
+                    <flag>wxGROW</flag>
                     <border>5</border>
                     <object class="wxStaticBoxSizer">
                         <orient>wxVERTICAL</orient>
                         <label>Server Response</label>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL</flag>
+                            <flag>wxGROW</flag>
                             <object class="wxStaticText" name="ID_TEXT">
                                 <size>330,40</size>
                                 <label>text</label>
@@ -100,20 +99,20 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL</flag>
+                    <flag>wxGROW</flag>
                     <border>15</border>
                     <object class="wxStaticBoxSizer">
                         <orient>wxVERTICAL</orient>
                         <label>Stream Information</label>
                         <object class="sizeritem">
-                            <flag>wxALIGN_CENTER_VERTICAL|wxALL|wxSHAPED</flag>
+                            <flag>wxALL|wxSHAPED</flag>
                             <object class="wxStaticText" name="ID_TITLE">
                                 <size>260,-1</size>
                                 <label>Title</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticLine" name="ID_LINE">
                                 <size>20,-1</size>
@@ -121,7 +120,6 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxALIGN_CENTER_VERTICAL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="ID_TEXT">
                                 <size>260,-1</size>
@@ -133,18 +131,18 @@
             </object>
         </object>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL</flag>
+            <flag>wxGROW</flag>
             <border>5</border>
             <object class="wxBoxSizer">
                 <orient>wxHORIZONTAL</orient>
                 <object class="sizeritem">
-                    <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL</flag>
+                    <flag>wxGROW</flag>
                     <border>5</border>
                     <object class="wxStaticBoxSizer">
                         <orient>wxVERTICAL</orient>
                         <label>Requests</label>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxListBox" name="ID_LISTBOX">
                                 <size>400,150</size>
@@ -157,7 +155,7 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL</flag>
+                    <flag>wxGROW</flag>
                     <border>5</border>
                     <object class="wxStaticBoxSizer">
                         <orient>wxVERTICAL</orient>
@@ -200,7 +198,7 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL</flag>
+                    <flag>wxGROW</flag>
                     <border>5</border>
                     <object class="wxStaticBoxSizer">
                         <orient>wxVERTICAL</orient>
@@ -267,7 +265,7 @@
     <object class="wxBoxSizer">
         <orient>wxVERTICAL</orient>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL</flag>
+            <flag>wxGROW</flag>
             <border>5</border>
             <object class="wxBoxSizer">
                 <orient>wxHORIZONTAL</orient>
@@ -278,7 +276,7 @@
                         <orient>wxVERTICAL</orient>
                         <object class="sizeritem">
                             <option>15</option>
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_SERVERS">
                                 <size>90,-1</size>
@@ -286,7 +284,7 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_LOGIN">
                                 <label>Disconnected</label>
@@ -311,12 +309,12 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxGROW|wxALL</flag>
                     <border>5</border>
                     <object class="wxBoxSizer">
                         <orient>wxVERTICAL</orient>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="ID_TEXT">
                                 <style>wxALIGN_CENTRE</style>
@@ -343,19 +341,19 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxALL</flag>
                     <border>5</border>
                     <object class="wxBoxSizer">
                         <orient>wxVERTICAL</orient>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="ID_TEXT">
                                 <label>STREAM STATUS</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="IDC_TITLE">
                                 <size>180,-1</size>
@@ -363,7 +361,7 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="IDC_OTHER">
                                 <label>Stream Stats</label>
@@ -389,7 +387,7 @@
             </object>
         </object>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL</flag>
+            <flag>wxGROW</flag>
             <border>5</border>
             <object class="wxBoxSizer">
                 <orient>wxHORIZONTAL</orient>
@@ -399,21 +397,21 @@
                     <object class="wxBoxSizer">
                         <orient>wxVERTICAL</orient>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_DJ_LOGIN">
                                 <label>DJ Login</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_DJ_LOG_OUT">
                                 <label>DJ Logout</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_DO_REQ">
                                 <size>90,-1</size>
@@ -421,14 +419,14 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_SHOW_DED_TO">
                                 <label>Show Ded. To.</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_CLEAR_REQ">
                                 <label>Clear Req. List</label>
@@ -445,7 +443,7 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxGROW|wxALL</flag>
                     <border>5</border>
                     <object class="wxListBox" name="IDC_REQUESTS">
                         <size>450,160</size>
@@ -460,35 +458,35 @@
                     <object class="wxBoxSizer" name="IDC_ADMIN">
                         <orient>wxVERTICAL</orient>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_NEXT">
                                 <label>ADJ Next</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_BCAST">
                                 <label>Broadcast Msg</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_DOSPAM">
                                 <label>Do Spam</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_DIE">
                                 <label>Die</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_RESTART">
                                 <label>Restart</label>
@@ -577,12 +575,12 @@
     <object class="wxBoxSizer">
         <orient>wxVERTICAL</orient>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+            <flag>wxGROW|wxALL</flag>
             <border>5</border>
             <object class="wxBoxSizer">
                 <orient>wxHORIZONTAL</orient>
                 <object class="sizeritem">
-                    <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxGROW|wxALL</flag>
                     <border>5</border>
                     <object class="wxListBox" name="IDC_CONLIST">
                         <size>240,100</size>
@@ -592,20 +590,19 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxALIGN_CENTER_HORIZONTAL</flag>
                     <border>5</border>
                     <object class="wxStaticBoxSizer">
                         <orient>wxVERTICAL</orient>
                         <label></label>
                         <object class="sizeritem">
-                            <flag>wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="ID_TEXT">
                                 <label>IRCBot Connection Name:</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxTextCtrl" name="IDC_BOTNAME">
                                 <size>80,-1</size>
@@ -613,14 +610,14 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="ID_TEXT">
                                 <label>IRCBot Hostname/IP Address:</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxTextCtrl" name="IDC_BOTIP">
                                 <size>200,-1</size>
@@ -628,14 +625,14 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="ID_TEXT">
                                 <label>Your IRCBot Username:</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxTextCtrl" name="IDC_USERNAME">
                                 <size>80,-1</size>
@@ -643,14 +640,14 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="ID_TEXT">
                                 <label>Your IRCBot Password:</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxTextCtrl" name="IDC_PASS">
                                 <size>80,-1</size>
@@ -659,14 +656,14 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="ID_TEXT">
                                 <label>IRCBot Remote Connection Port:</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxTextCtrl" name="IDC_PORT">
                                 <size>80,-1</size>
@@ -674,7 +671,7 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxRadioBox" name="IDC_CONNTYPE">
                                 <style>wxRA_SPECIFY_COLS</style>
@@ -740,7 +737,7 @@
             <object class="wxBoxSizer">
                 <orient>wxHORIZONTAL</orient>
                 <object class="sizeritem">
-                    <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxGROW|wxALL</flag>
                     <border>5</border>
                     <object class="wxBoxSizer">
                         <orient>wxVERTICAL</orient>
@@ -752,14 +749,14 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_WIKI">
                                 <label>IRCBot Wiki</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxButton" name="IDC_WWW">
                                 <label>ShoutIRC.com</label>
@@ -775,33 +772,33 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                    <flag>wxGROW|wxALL</flag>
                     <border>5</border>
                     <object class="wxBoxSizer">
                         <orient>wxVERTICAL</orient>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="IDC_NAME">
                                 <label>text</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="IDC_COMPILED">
                                 <label>text</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticText" name="IDC_COPYRIGHT">
                                 <label>Copyright (c) 2003-2007 Drift Solutions. All Rights Reserved.</label>
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxStaticLine" name="ID_LINE">
                                 <size>20,-1</size>
@@ -809,7 +806,7 @@
                             </object>
                         </object>
                         <object class="sizeritem">
-                            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                            <flag>wxGROW|wxALL</flag>
                             <border>5</border>
                             <object class="wxTextCtrl" name="IDC_LONGABOUT">
                                 <size>-1,180</size>
@@ -843,11 +840,11 @@
                 <orient>wxVERTICAL</orient>
                 <label>Client Options</label>
                 <object class="sizeritem">
-                    <flag>wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                    <flag>wxALL</flag>
                     <object class="wxBoxSizer">
                         <orient>wxHORIZONTAL</orient>
                         <object class="sizeritem">
-                            <flag>wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                            <flag>wxALL</flag>
                             <border>5</border>
                             <object class="wxCheckBox" name="IDC_BEEP">
                                 <label>Beep on incoming request.</label>
@@ -856,12 +853,12 @@
                     </object>
                 </object>
                 <object class="sizeritem">
-                    <flag>wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                    <flag>wxALL</flag>
                     <border>5</border>
                     <object class="wxBoxSizer">
                         <orient>wxHORIZONTAL</orient>
                         <object class="sizeritem">
-                            <flag>wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                            <flag>wxALL</flag>
                             <object class="wxCheckBox" name="IDC_ONTOP">
                                 <label>Keep client window on top</label>
                             </object>

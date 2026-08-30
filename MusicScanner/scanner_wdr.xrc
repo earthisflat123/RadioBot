@@ -9,7 +9,7 @@
     <object class="wxBoxSizer">
         <orient>wxVERTICAL</orient>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL</flag>
+            <flag>wxGROW</flag>
             <border>5</border>
             <object class="wxBoxSizer">
                 <orient>wxHORIZONTAL</orient>
@@ -40,7 +40,7 @@
             </object>
         </object>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL</flag>
+            <flag>wxGROW</flag>
             <border>5</border>
             <object class="wxBoxSizer">
                 <orient>wxHORIZONTAL</orient>
@@ -71,7 +71,7 @@
             </object>
         </object>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL</flag>
+            <flag>wxGROW</flag>
             <border>5</border>
             <object class="wxBoxSizer">
                 <orient>wxHORIZONTAL</orient>
@@ -102,7 +102,7 @@
             </object>
         </object>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+            <flag>wxGROW|wxALL</flag>
             <border>5</border>
             <object class="wxListBox" name="ID_LOG">
                 <size>80,100</size>
