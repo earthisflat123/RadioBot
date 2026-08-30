@@ -45,6 +45,18 @@ services:
       - radiobot_default
     restart: "no"
 
+  shoutcast:
+    image: mangup/shoutcast:latest
+    container_name: radiobot-shoutcast
+    ports:
+      - "8002:8000"
+      - "8003:8001"
+    volumes:
+      - ./test-data/shoutcast:/opt/shoutcast/conf
+    networks:
+      - radiobot_default
+    restart: "no"
+
 volumes:
   mariadb-data:
 
