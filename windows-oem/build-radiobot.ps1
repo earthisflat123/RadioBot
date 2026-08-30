@@ -28,6 +28,7 @@ $env:Path = "C:\Program Files\Git\bin;$env:Path"
 
 $Log = "C:\OEM\build-radio.log"
 $Sln = "$RepoDir\IRCBot\IRCBot.sln"
+$SlnDir = "$RepoDir\IRCBot"
 $VcpkgRoot = "C:\vcpkg\installed\x86-windows"
 $DepsDir = "C:\deps"
 
@@ -70,7 +71,9 @@ try {
         # 'RadioBot_Shell' is kept now; Titus_Buffer is provided in shell.h
         # 'adj_enc_opus' builds in Release without FAAC (only Debug config links libfaac_d.lib)
         # 'adj_enc_aac' is kept now; libfaac is built from source
-        'adj_enc_aacplus'    # needs libaacplus (not in vcpkg)
+        'adj_enc_aacplus'    # intentionally skipped: libaacplus wraps the 3GPP
+                             # reference AAC+ encoder and has restrictive licensing.
+                             # The official Windows installer also omits this plugin.
     )
     & C:\OEM\sln-prune.ps1 -Projects $RemoveProjects
 
@@ -126,7 +129,14 @@ try {
     $MsBuild = & $VsWhere -latest -products * -requires Microsoft.Component.MSBuild -find MSBuild\Current\Bin\MSBuild.exe | Select-Object -First 1
     if (-not $MsBuild) { throw "MSBuild not found" }
 
-    # 9. Build add_checksum and inc_build first. They are used by post-build
+    # 9. Pre-create the output tree so every post-build copy has a valid target.
+    #    This is especially important after a clean build where v5\Output may not
+    #    yet exist.
+    $OutputDir = "$RepoDir\v5\Output"
+    New-Item -ItemType Directory -Force -Path $OutputDir | Out-Null
+    New-Item -ItemType Directory -Force -Path "$OutputDir\plugins" | Out-Null
+
+    # 10. Build add_checksum and inc_build first. They are used by post-build
     #    events, so building them serialised before the parallel solution avoids
     #    file-in-use/copy failures. Explicitly copy the tools to the repo root
     #    so move_and_sign.bat and custom build steps can find them even if the
@@ -142,6 +152,12 @@ try {
     # 10. Build the full solution in parallel.
     & $MsBuild $Sln /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
     if ($LASTEXITCODE -ne 0) { throw "RadioBot build failed" }
+
+    # 10b. Build the ConfigWizard setup GUI. It is not in the main solution but
+    #      uses the same output and signing process, so build it with the
+    #      solution directory set to IRCBot\.
+    & $MsBuild "$RepoDir\ConfigWizard\ConfigWizard.vcxproj" /p:Configuration=Release /p:Platform=Win32 /p:SolutionDir=$SlnDir\ /v:minimal
+    if ($LASTEXITCODE -ne 0) { throw "ConfigWizard build failed" }
 
     # 11. Stage runtime DLLs next to the binaries so the output is usable.
     $OutputDir = "$RepoDir\v5\Output"

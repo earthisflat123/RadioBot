@@ -66,4 +66,7 @@ windows-oem/id_rsa*
 # Local runtime data directory (created by docker compose)
 data/
 
+# Test MP3s are downloaded by test-data/download-songs.*, not committed
+test-data/mp3s/*.mp3
+
 

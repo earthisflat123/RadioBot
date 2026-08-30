@@ -1,0 +1,127 @@
+[CmdletBinding()]
+param(
+    [string]$OutFile = "C:\RadioBot\artifacts\RadioBot-setup.exe"
+)
+
+#Requires -Version 5.1
+
+<#
+.SYNOPSIS
+    Builds a RadioBot Windows installer inside the VM.
+
+.DESCRIPTION
+    This script merges the freshly built RadioBot binaries (C:\RadioBot\v5\Output)
+    with the official extra files from the original installer payload, then builds
+    an NSIS installer named C:\RadioBot\RadioBot-setup.exe.
+
+    The original installer is expected at C:\RadioBot\official-installer.exe.
+    If it is missing, the script tries to download it from the URL in $OfficialUrl.
+
+    The NSIS source script is in the same C:\OEM directory (copied from
+    windows-oem/RadioBot.nsi) and uses /D command-line defines for the payload
+    and output paths.
+#>
+
+$ErrorActionPreference = "Stop"
+
+$RepoDir      = "C:\RadioBot"
+$OutputDir    = "$RepoDir\v5\Output"
+$PayloadDir   = "$RepoDir\payload-official"
+$InstallerSrc = "$RepoDir\official-installer.exe"
+$OEMDir       = "C:\OEM"
+$NsisFile     = "$OEMDir\RadioBot.nsi"
+$SevenZip     = "C:\Program Files\7-Zip\7z.exe"
+$MakeNsis     = "C:\Program Files (x86)\NSIS\makensis.exe"
+$OfficialUrl  = "https://www.shoutirc.com/index.php?mod=Downloads&action=download&id=64"
+
+function Write-Log($msg) {
+    $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
+    Write-Host "$ts $msg"
+}
+
+# 1. Ensure NSIS is installed.
+if (-not (Test-Path $MakeNsis)) {
+    Write-Log "NSIS not found, installing via Chocolatey..."
+    $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
+    & $choco install -y nsis --no-progress
+    if ($LASTEXITCODE -ne 0) { throw "Failed to install NSIS" }
+}
+
+# 2. Ensure we have the official installer payload.
+if (-not (Test-Path $PayloadDir)) {
+    if (-not (Test-Path $InstallerSrc)) {
+        Write-Log "Official installer not found at $InstallerSrc, downloading..."
+        Invoke-WebRequest -Uri $OfficialUrl -OutFile $InstallerSrc -UserAgent "Mozilla/5.0"
+    }
+    Write-Log "Extracting official installer to $PayloadDir..."
+    New-Item -ItemType Directory -Force -Path $PayloadDir | Out-Null
+    & $SevenZip x $InstallerSrc -o"$PayloadDir" -y
+    if ($LASTEXITCODE -ne 0) { throw "Failed to extract official installer" }
+    $extracted = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
+    Write-Log "Extracted $extracted files to payload directory."
+    # The 7-Zip extraction also creates a $PLUGINSDIR folder from the installer's
+    # temp plugin files. It must not be installed to the target directory.
+    Remove-Item -LiteralPath "$PayloadDir\`$PLUGINSDIR" -Recurse -Force -ErrorAction SilentlyContinue
+    $afterRemove = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
+    Write-Log "After removing `$PLUGINSDIR: $afterRemove files."
+}
+
+# 3. Overlay the new build output on top of the payload. This preserves all the
+#    official extra files (langsrc, trivia, sam_scripts, DJ Package, .pal files,
+#    qstat.exe, ffmpeg.exe, yt-dlp.exe, etc.) while replacing the built binaries.
+Write-Log "Overlaying build output onto payload..."
+$beforeOverlay = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
+Write-Log "Payload contains $beforeOverlay files before overlay."
+& C:\Windows\System32\robocopy.exe $OutputDir $PayloadDir /E /COPY:DAT /MT:4 /R:2 /W:2 /NDL /NFL
+$afterOverlay = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
+Write-Log "Payload contains $afterOverlay files after overlay."
+if ($LASTEXITCODE -ge 8) { throw "robocopy overlay failed" }
+
+# 3b. Remove stale/duplicate binaries left over from the official installer that
+#     conflict with the current build's shared dependencies.
+$PruneFiles = @(
+    "avcodec-60.dll", "avdevice-60.dll", "avfilter-9.dll", "avformat-60.dll",
+    "avutil-58.dll", "swresample-4.dll", "swscale-7.dll",
+    "client.exe", "ffmpeg.exe", "ffprobe.exe", "lame.exe",
+    "libfaac.dll", "libmariadb.dll", "libsndfile-1.dll",
+    "libssl-3-x64.dll", "lua53.dll", "taglib.dll"
+)
+foreach ($f in $PruneFiles) {
+    $p = Join-Path $PayloadDir $f
+    if (Test-Path $p) { Remove-Item $p -Force; Write-Log "Pruned $f" }
+}
+$djPackage = Join-Path $PayloadDir "DJ Package"
+if (Test-Path $djPackage) { Remove-Item $djPackage -Recurse -Force; Write-Log "Pruned DJ Package" }
+
+# 4. Ensure the runtime config/language files are at the payload root.
+$IrcbotText = "$RepoDir\ircbot.text"
+$IrcbotPem  = "$RepoDir\ircbot.pem"
+$ClientPem  = "$RepoDir\Client3\client.pem"
+if (Test-Path $IrcbotText) { Copy-Item $IrcbotText $PayloadDir -Force }
+if (Test-Path $IrcbotPem)  { Copy-Item $IrcbotPem  $PayloadDir -Force }
+if (Test-Path $ClientPem)  { Copy-Item $ClientPem  $PayloadDir -Force }
+
+# 5. Copy the icon to the payload root as shoutirc.ico (the installer uses it).
+$SrcIcon = "$RepoDir\client\ca.ico"
+if (Test-Path $SrcIcon) { Copy-Item $SrcIcon "$PayloadDir\shoutirc.ico" -Force }
+
+# 6. Copy the NSIS source to C:\OEM.
+New-Item -ItemType Directory -Force -Path $OEMDir | Out-Null
+$RepoOEM = "$RepoDir\windows-oem"
+if (Test-Path "$RepoOEM\RadioBot.nsi") { Copy-Item "$RepoOEM\RadioBot.nsi" $OEMDir -Force }
+
+# 7. Ensure the output directory exists.
+New-Item -ItemType Directory -Force -Path (Split-Path $OutFile -Parent) | Out-Null
+
+# 8. Build the installer from the template .nsi in C:\OEM.
+Write-Log "Building installer with makensis..."
+& $MakeNsis "/DPAYLOADDIR=$PayloadDir" "/DOUTFILE=$OutFile" $NsisFile
+if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+
+if (Test-Path $OutFile) {
+    Write-Log "Installer built: $OutFile"
+    $size = (Get-Item $OutFile).Length / 1MB
+    Write-Log "Size: $size MB"
+} else {
+    throw "Installer output not found"
+}

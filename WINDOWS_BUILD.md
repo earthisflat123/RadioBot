@@ -156,7 +156,7 @@ The following projects are now built by default:
 
 The following projects are still pruned from the solution because their dependencies are missing or the project itself is incomplete:
 
-- `adj_enc_aacplus` – requires `libaacplus` (or a replacement AAC+ encoder).
+- `adj_enc_aacplus` – intentionally skipped. It requires `libaacplus`, which wraps the 3GPP reference AAC+ encoder and has restrictive licensing (the 3GPP source is not freely redistributable). The official Windows installer also does not ship `adj_enc_aacplus.dll`, so this matches the upstream release. Use `adj_enc_aac` (FAAC) or `adj_enc_ffmpeg` for AAC/HE-AAC encoding instead.
 - `ibViralSound` – no `.vcxproj` file is present.
 
 ## Troubleshooting
