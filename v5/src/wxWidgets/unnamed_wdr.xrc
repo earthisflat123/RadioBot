@@ -9,7 +9,7 @@
     <object class="wxBoxSizer">
         <orient>wxVERTICAL</orient>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+            <flag>wxGROW|wxALL</flag>
             <border>5</border>
             <object class="wxNotebook" name="ID_NOTEBOOK">
                 <usenotebooksizer>1</usenotebooksizer>
@@ -19,7 +19,7 @@
                         <object class="wxBoxSizer">
                             <orient>wxVERTICAL</orient>
                             <object class="sizeritem">
-                                <flag>wxFIXED_MINSIZE|wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+                                <flag>wxFIXED_MINSIZE|wxGROW|wxALL</flag>
                                 <border>5</border>
                                 <object class="wxTextCtrl" name="IDC_LOG">
                                     <size>450,200</size>
@@ -36,7 +36,7 @@
                         <object class="wxBoxSizer">
                             <orient>wxHORIZONTAL</orient>
                             <object class="sizeritem">
-                                <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+                                <flag>wxGROW|wxALL</flag>
                                 <border>5</border>
                                 <object class="wxListCtrl" name="IDC_SSLIST">
                                     <size>600,160</size>
@@ -55,7 +55,7 @@
     <object class="wxBoxSizer">
         <orient>wxHORIZONTAL</orient>
         <object class="sizeritem">
-            <flag>wxGROW|wxALIGN_CENTER_HORIZONTAL|wxALL</flag>
+            <flag>wxGROW|wxALL</flag>
             <border>5</border>
             <object class="wxListCtrl" name="IDC_SSLIST">
                 <size>600,160</size>
@@ -69,7 +69,7 @@
     <object class="wxBoxSizer">
         <orient>wxVERTICAL</orient>
         <object class="sizeritem">
-            <flag>wxFIXED_MINSIZE|wxGROW|wxALIGN_CENTER_VERTICAL|wxALL</flag>
+            <flag>wxFIXED_MINSIZE|wxGROW|wxALL</flag>
             <border>5</border>
             <object class="wxTextCtrl" name="IDC_LOG">
                 <size>450,200</size>

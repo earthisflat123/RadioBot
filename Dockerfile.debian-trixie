@@ -1,0 +1,146 @@
+# Build a .deb package of RadioBot for Debian Trixie.
+#
+# Usage:
+#   docker build -f Dockerfile.debian-trixie -t radiobot-deb .
+#   docker run --rm -v $(pwd):/out radiobot-deb cp /build/radiobot_5.0.0_amd64.deb /out/
+
+FROM debian:trixie AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+# Enable main, contrib, non-free, and non-free-firmware (libfaac-dev lives in non-free)
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    sed -i 's/^Components: main$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update
+
+# Install build dependencies matching the project's Debian 12 list, adjusted for Trixie.
+RUN apt-get install -y --no-install-recommends \
+    build-essential cmake git protobuf-compiler \
+    libssl-dev libsqlite3-dev libwxgtk3.2-dev libtag1-dev libmp3lame-dev \
+    libogg-dev libvorbis-dev libsndfile1-dev libavcodec-dev libavformat-dev \
+    libcurl4-openssl-dev libmpg123-dev libresample1-dev \
+    libfaad-dev libncurses-dev libphysfs-dev libprotobuf-dev \
+    default-libmysqlclient-dev libfaac-dev libopus-dev libloudmouth1-dev \
+    libdbus-glib-1-dev libmuparser-dev libsoxr-dev libz-dev \
+    liblua5.4-dev wget ca-certificates \
+    dpkg-dev \
+    && rm -rf /var/lib/apt/lists/*
+
+# Debian Trixie no longer ships libpcre3-dev (PCRE1). Build a static PCRE1
+# from source so the Trivia plugin can link it without a runtime dependency.
+RUN cd /tmp && \
+    wget -q https://sourceforge.net/projects/pcre/files/pcre/8.45/pcre-8.45.tar.gz/download -O pcre-8.45.tar.gz && \
+    tar xzf pcre-8.45.tar.gz && \
+    cd pcre-8.45 && \
+    ./configure --prefix=/usr/local --disable-shared --enable-static --with-pic CFLAGS="-fPIC -O2" && \
+    make -j"$(nproc)" && \
+    make install && \
+    rm -rf /tmp/pcre-8.45*
+
+WORKDIR /src
+COPY . .
+
+# Build RadioBot. The `add_checksum` target must be built before the bot because
+# the main build embeds its output.
+ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+# Trixie's glibc 2.41 needs _DEFAULT_SOURCE for getpid/strdup/strcasecmp etc.
+# in the bundled libzip code.
+RUN mkdir build && cd build && \
+    cmake -DCMAKE_C_FLAGS="-D_DEFAULT_SOURCE" -DCMAKE_CXX_FLAGS="-D_DEFAULT_SOURCE" .. && \
+    make add_checksum && \
+    make -j"$(nproc)" && \
+    mkdir -p /src/build/debian && \
+    cat > /src/build/debian/control <<'EOF'
+Source: radiobot
+Section: net
+Priority: optional
+Maintainer: RadioBot <radiobot@example.com>
+
+Package: radiobot
+Architecture: amd64
+Depends: ${shlibs:Depends}
+Description: RadioBot IRC bot
+ RadioBot is an IRC bot for internet radio stations.
+EOF
+# Compute shlibs:Depends while all runtime libraries are still installed.
+RUN cd /src/build && \
+    dpkg-shlibdeps -O \
+        -e /src/build/Output/radiobot \
+        /src/build/Output/plugins/*.so > /src/build/shlibs-depends.txt
+
+# Package stage: build a .deb from a staging directory.
+FROM debian:trixie
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG VERSION=5.0.0
+
+# Need dpkg-shlibdeps in the package stage to compute shared-library dependencies.
+RUN apt-get update && \
+    sed -i 's/^Components: main$/Components: main contrib non-free non-free-firmware/' /etc/apt/sources.list.d/debian.sources && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends dpkg-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Create the staging directory with the package layout.
+RUN mkdir -p /pkg/radiobot-${VERSION}/DEBIAN \
+             /pkg/radiobot-${VERSION}/usr/bin \
+             /pkg/radiobot-${VERSION}/usr/lib/radiobot/plugins \
+             /pkg/radiobot-${VERSION}/usr/share/doc/radiobot \
+             /pkg/radiobot-${VERSION}/var/lib/radiobot
+
+# Copy built artifacts.
+COPY --from=builder /src/build/Output/radiobot /pkg/radiobot-${VERSION}/usr/lib/radiobot/radiobot
+COPY --from=builder /src/build/Output/plugins/*.so /pkg/radiobot-${VERSION}/usr/lib/radiobot/plugins/
+COPY --from=builder /src/ircbot.text /pkg/radiobot-${VERSION}/usr/lib/radiobot/ircbot.text
+COPY --from=builder /src/COPYING /pkg/radiobot-${VERSION}/usr/share/doc/radiobot/copyright
+
+# Wrapper script that runs the bot from the user's data directory while
+# symlinking static files (ircbot.text and plugins) from /usr/lib/radiobot.
+# RADIOBOT_DATA overrides the default $HOME/.radiobot.
+COPY <<'EOF' /pkg/radiobot-${VERSION}/usr/bin/radiobot
+#!/bin/sh
+set -e
+RADIOBOT_DATA="${RADIOBOT_DATA:-$HOME/.radiobot}"
+mkdir -p "$RADIOBOT_DATA"
+cd "$RADIOBOT_DATA"
+[ -e ircbot.text ] || ln -sf /usr/lib/radiobot/ircbot.text ircbot.text
+[ -e plugins ] || ln -sf /usr/lib/radiobot/plugins plugins
+exec /usr/lib/radiobot/radiobot "$@"
+EOF
+RUN chmod 755 /pkg/radiobot-${VERSION}/usr/bin/radiobot
+
+# postinst creates the runtime data directory only when running as root.
+COPY <<'EOF' /pkg/radiobot-${VERSION}/DEBIAN/postinst
+#!/bin/sh
+set -e
+if [ "$(id -u)" -eq 0 ]; then
+    mkdir -p /var/lib/radiobot
+    chmod 755 /var/lib/radiobot
+fi
+EOF
+RUN chmod 755 /pkg/radiobot-${VERSION}/DEBIAN/postinst
+
+# Compute shlibs:Depends from the binary and all plugin modules.
+COPY --from=builder /src/build/shlibs-depends.txt /build/shlibs-depends.txt
+RUN set -e; \
+    shlibs_dep=$(sed -n 's/^shlibs:Depends=//p' /build/shlibs-depends.txt); \
+    cat > /pkg/radiobot-${VERSION}/DEBIAN/control <<CTRL
+Package: radiobot
+Version: ${VERSION}
+Section: net
+Priority: optional
+Architecture: amd64
+Depends: ${shlibs_dep}
+Maintainer: RadioBot <radiobot@example.com>
+Description: RadioBot IRC bot
+ RadioBot is an IRC bot for internet radio stations.
+CTRL
+
+# Build the .deb
+RUN dpkg-deb --build /pkg/radiobot-${VERSION} /build/radiobot_${VERSION}_amd64.deb && \
+    dpkg-deb --info /build/radiobot_${VERSION}_amd64.deb
+
+CMD ["sh", "-c", "cp /build/radiobot_${VERSION}_amd64.deb /out/"]

@@ -153,7 +153,7 @@ bool SC_Feeder::SendTitleUpdate(const char * title, TITLE_DATA * td) {
 
 	DRIFT_DIGITAL_SIGNATURE();
 
-	surl << "GET /admin.cgi?pass=" << urlencode(ad_config.Server.Pass, url, sizeof(url)) << "&mode=updinfo&song=" << title;
+	surl << "GET /admin.cgi?pass=" << urlencode(ad_config.Server.Pass, url, sizeof(url)) << "&mode=updinfo&song=" << urlencode(title, url, sizeof(url));
 
 	if (td && td->url[0]) {
 		surl << "&url=" << urlencode(td->url, url, sizeof(url));

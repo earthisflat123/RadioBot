@@ -33,7 +33,11 @@ bool Prepare_SC(int num, BUFFER * buf) {
 	std::stringstream sstr,sstr2;
 	sstr << "http://" << config.s_servers[num].host << ":" << config.s_servers[num].port << "/";
 	if (config.s_servers[num].pass.length()) {
-		sstr << "admin.cgi?mode=viewxml&page=1";
+		if (config.s_servers[num].streamid > 0) {
+			sstr << "admin.cgi?sid=" << config.s_servers[num].streamid << "&mode=viewxml&page=1";
+		} else {
+			sstr << "admin.cgi?mode=viewxml&page=1";
+		}
 		sstr2 << "admin:" << config.s_servers[num].pass;
 	}
 
@@ -147,6 +151,17 @@ bool Parse_SC(int num, BUFFER * buf, STATS * stats) {
 				strtrim(stats->curdj);
 				IfExistCopy(root, "SONGTITLE", stats->cursong, sizeof(stats->cursong));
 				strtrim(stats->cursong);
+				int len = 0;
+				char * tmp = curl_easy_unescape(buf->handle, stats->curdj, 0, &len);
+				if (tmp) {
+					strlcpy(stats->curdj, tmp, sizeof(stats->curdj));
+					curl_free(tmp);
+				}
+				tmp = curl_easy_unescape(buf->handle, stats->cursong, 0, &len);
+				if (tmp) {
+					strlcpy(stats->cursong, tmp, sizeof(stats->cursong));
+					curl_free(tmp);
+				}
 				stats->listeners = IfExistInt(root, "CURRENTLISTENERS");
 				stats->peak = IfExistInt(root, "PEAKLISTENERS");
 				stats->maxusers = IfExistInt(root, "MAXLISTENERS");

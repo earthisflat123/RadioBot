@@ -109,8 +109,8 @@
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
     <ClCompile>
-      <AdditionalIncludeDirectories>g:\wx\include;g:\wx\lib\vc_lib\mswu;C:\deps\include\taglib;C:\deps\include\taglib\toolkit;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
-      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;ENABLE_ZLIB;WINVER=0x0400;wxUSE_GUI=1;DSL_STATIC;MEMLEAK;%(PreprocessorDefinitions);TIXML_USE_STL;WXUSINGDLL</PreprocessorDefinitions>
+      <AdditionalIncludeDirectories>$(VcpkgInstalledDir)\include;$(VcpkgInstalledDir)\lib\mswu;C:\deps\include\taglib;C:\deps\include\taglib\toolkit;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>WIN32;NDEBUG;_WINDOWS;ENABLE_ZLIB;WINVER=0x0600;_WIN32_WINNT=0x0600;wxUSE_GUI=1;DSL_STATIC;MEMLEAK;%(PreprocessorDefinitions);TIXML_USE_STL;WXUSINGDLL;__WXMSW__</PreprocessorDefinitions>
       <RuntimeLibrary>MultiThreadedDLL</RuntimeLibrary>
       <PrecompiledHeader>
       </PrecompiledHeader>
@@ -118,8 +118,8 @@
       <DebugInformationFormat>ProgramDatabase</DebugInformationFormat>
     </ClCompile>
     <Link>
-      <AdditionalDependencies>sqlite3-static.lib;comctl32.lib;Rpcrt4.lib;%(AdditionalDependencies)</AdditionalDependencies>
-      <AdditionalLibraryDirectories>C:\deps\lib\wx;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
+      <AdditionalDependencies>wxmsw33u_core.lib;wxbase33u.lib;wxmsw33u_xrc.lib;wxmsw33u_adv.lib;wxmsw33u_richtext.lib;wxmsw33u_html.lib;wxbase33u_xml.lib;tag.lib;sqlite3.lib;comctl32.lib;Rpcrt4.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalLibraryDirectories>$(VcpkgInstalledDir)\lib;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
       <GenerateDebugInformation>false</GenerateDebugInformation>
       <SubSystem>Windows</SubSystem>
       <OptimizeReferences>true</OptimizeReferences>

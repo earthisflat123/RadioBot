@@ -80,6 +80,17 @@ bool Parse_SC2(int num, BUFFER * buf, STATS * stats) {
 			strtrim(stats->curdj);
 			IfExistCopy(root, "SONGTITLE", stats->cursong, sizeof(stats->cursong));
 			strtrim(stats->cursong);
+			int len = 0;
+			char * tmp = curl_easy_unescape(buf->handle, stats->curdj, 0, &len);
+			if (tmp) {
+				strlcpy(stats->curdj, tmp, sizeof(stats->curdj));
+				curl_free(tmp);
+			}
+			tmp = curl_easy_unescape(buf->handle, stats->cursong, 0, &len);
+			if (tmp) {
+				strlcpy(stats->cursong, tmp, sizeof(stats->cursong));
+				curl_free(tmp);
+			}
 			stats->listeners = IfExistInt(root, "CURRENTLISTENERS");
 			stats->peak = IfExistInt(root, "PEAKLISTENERS");
 			stats->maxusers = IfExistInt(root, "MAXLISTENERS");

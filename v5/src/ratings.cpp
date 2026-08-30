@@ -135,14 +135,15 @@ void RateSong(const char * ssong, const char * nick, uint32 rating, uint32 id) {
 		}
 
 		char * song = MPrintf("%q", ssong);
+		char * enick = MPrintf("%q", nick);
 
 		std::stringstream sstr;
-		sstr << "DELETE FROM Votes WHERE Song LIKE '" << song << "' AND Nick LIKE '" << nick << "'";
+		sstr << "DELETE FROM Votes WHERE Song LIKE '" << song << "' AND Nick LIKE '" << enick << "'";
 		Query((char *)sstr.str().c_str(), NULL, NULL, NULL);
 
 		if (rating > 0) {
 			std::stringstream sstr2;
-			sstr2 << "INSERT INTO Votes (`Song`,`SongID`,`Nick`,`Rating`) VALUES (\"" << song << "\", " << ri.AutoDJ_ID << ", '" << nick << "', " << rating << ")";
+			sstr2 << "INSERT INTO Votes (`Song`,`SongID`,`Nick`,`Rating`) VALUES ('" << song << "', " << ri.AutoDJ_ID << ", '" << enick << "', " << rating << ")";
 			Query((char *)sstr2.str().c_str(), NULL, NULL, NULL);
 		}
 
@@ -161,7 +162,7 @@ void RateSong(const char * ssong, const char * nick, uint32 rating, uint32 id) {
 		}
 
 		std::stringstream sstr4;
-		sstr4 << "REPLACE INTO Ratings (`Song`,`SongID`,`Rating`,`Votes`) VALUES (\"" << song << "\", " << ri.AutoDJ_ID << ", " << rating << ", " << num << ")";
+		sstr4 << "REPLACE INTO Ratings (`Song`,`SongID`,`Rating`,`Votes`) VALUES ('" << song << "', " << ri.AutoDJ_ID << ", " << rating << ", " << num << ")";
 		Query((char *)sstr4.str().c_str(), NULL, NULL, NULL);
 
 		IBM_RATING ir;
@@ -170,6 +171,7 @@ void RateSong(const char * ssong, const char * nick, uint32 rating, uint32 id) {
 		ir.rating = rating;
 		ir.votes = num;
 		SendMessage(-1, IB_ON_SONG_RATING, (char *)&ir, sizeof(ir));
+		Free(enick);
 		Free(song);
 	}
 }
@@ -178,14 +180,15 @@ void RateSong(uint32 song, const char * nick, uint32 rating) {
 		RSONG_INFO ri;
 		GetSongInfo(song,&ri);
 		char * msong = MPrintf("%q", ri.Song);
+		char * enick = MPrintf("%q", nick);
 
 		std::stringstream sstr;
-		sstr << "DELETE FROM Votes WHERE SongID=" << song << " AND Nick LIKE '" << nick << "'";
+		sstr << "DELETE FROM Votes WHERE SongID=" << song << " AND Nick LIKE '" << enick << "'";
 		Query((char *)sstr.str().c_str(), NULL, NULL, NULL);
 
 		if (rating > 0) {
 			std::stringstream sstr2;
-			sstr2 << "INSERT INTO Votes (`Song`,`SongID`,`Nick`,`Rating`) VALUES (\"" << msong << "\", '" << song << "', '" << nick << "', " << rating << ")";
+			sstr2 << "INSERT INTO Votes (`Song`,`SongID`,`Nick`,`Rating`) VALUES ('" << msong << "', '" << song << "', '" << enick << "', " << rating << ")";
 			Query((char *)sstr2.str().c_str(), NULL, NULL, NULL);
 		}
 
@@ -204,7 +207,7 @@ void RateSong(uint32 song, const char * nick, uint32 rating) {
 		}
 
 		std::stringstream sstr4;
-		sstr4 << "REPLACE INTO Ratings (`Song`,`SongID`,`Rating`,`Votes`) VALUES (\"" << msong << "\", " << song << ", " << rating << ", " << num << ")";
+		sstr4 << "REPLACE INTO Ratings (`Song`,`SongID`,`Rating`,`Votes`) VALUES ('" << msong << "', " << song << ", " << rating << ", " << num << ")";
 		Query((char *)sstr4.str().c_str(), NULL, NULL, NULL);
 
 		IBM_RATING ir;
@@ -213,6 +216,7 @@ void RateSong(uint32 song, const char * nick, uint32 rating) {
 		ir.rating = rating;
 		ir.votes = num;
 		SendMessage(-1, IB_ON_SONG_RATING, (char *)&ir, sizeof(ir));
+		Free(enick);
 		Free(msong);
 	}
 }

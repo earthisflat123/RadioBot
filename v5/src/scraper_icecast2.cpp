@@ -152,6 +152,9 @@ bool Parse_ICE_NoPass(int num, BUFFER * buf, STATS * stats) {
 					} else {
 						IfExistCopy(m, "title", stats->cursong, sizeof(stats->cursong));
 					}
+					if (stats->cursong[0] == 0) {
+						IfExistCopy(m, "display-title", stats->cursong, sizeof(stats->cursong));
+					}
 					stats->listeners = IfExistInt(m, "listeners");
 					stats->peak = IfExistInt(m, "peak");
 					stats->maxusers = IfExistInt(m, "max");
@@ -216,6 +219,9 @@ bool Parse_ICE(int num, BUFFER * buf, STATS * stats) {
 						snprintf(stats->cursong, sizeof(stats->cursong), "%s - %s", buf2, buf3);
 					} else {
 						IfExistCopy(m, "title", stats->cursong, sizeof(stats->cursong));
+					}
+					if (stats->cursong[0] == 0) {
+						IfExistCopy(m, "display-title", stats->cursong, sizeof(stats->cursong));
 					}
 					stats->listeners = IfExistInt(m, "listeners");
 					stats->peak = IfExistInt(m, "listener_peak");

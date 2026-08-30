@@ -1,0 +1,65 @@
+services:
+  ircd:
+    image: inspircd/inspircd-docker
+    container_name: radiobot-ircd
+    ports:
+      - "6667:6667"
+    environment:
+      INSP_NET_NAME: "RadioBotTest"
+      INSP_SERVER_NAME: "irc.radiobot.test"
+      INSP_ADMIN_NAME: "RadioBot Test"
+      INSP_ADMIN_DESC: "Test IRCd for RadioBot"
+      INSP_ADMIN_EMAIL: "noreply@radiobot.test"
+      INSP_ENABLE_DNSBL: "no"
+    networks:
+      - radiobot_default
+    restart: "no"
+
+  mariadb:
+    image: mariadb:10.11
+    container_name: radiobot-mariadb
+    ports:
+      - "3306:3306"
+    environment:
+      MYSQL_ROOT_PASSWORD: radiobot
+      MYSQL_DATABASE: radiobot
+      MYSQL_USER: radiobot
+      MYSQL_PASSWORD: radiobot
+    volumes:
+      - mariadb-data:/var/lib/mysql
+    networks:
+      - radiobot_default
+    restart: "no"
+
+  icecast:
+    image: libretime/icecast:2.5.0
+    container_name: radiobot-icecast
+    ports:
+      - "8000:8000"
+    environment:
+      ICECAST_SOURCE_PASSWORD: hackme
+      ICECAST_ADMIN_PASSWORD: hackme
+      ICECAST_PASSWORD: hackme
+      ICECAST_HOSTNAME: icecast.radiobot.test
+    networks:
+      - radiobot_default
+    restart: "no"
+
+  shoutcast:
+    image: mangup/shoutcast:latest
+    container_name: radiobot-shoutcast
+    ports:
+      - "8002:8000"
+      - "8003:8001"
+    volumes:
+      - ./test-data/shoutcast:/opt/shoutcast/conf
+    networks:
+      - radiobot_default
+    restart: "no"
+
+volumes:
+  mariadb-data:
+
+networks:
+  radiobot_default:
+    external: true

@@ -46,6 +46,8 @@
 #include <io.h>
 #define strcasecmp stricmp
 #define snprintf _snprintf
+#else
+#include <strings.h>
 #endif
 
 static int add_data(struct zip *, struct zip_source *, struct zip_dirent *,

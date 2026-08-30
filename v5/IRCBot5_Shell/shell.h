@@ -21,12 +21,24 @@
 \**********************************************************************/
 //@AUTOHEADER@END@
 
-#define DSL_STATIC
 #define MEMLEAK
 #include <drift/dsl.h>
 #include <Windowsx.h>
 #include "resource.h"
 #include "../../Common/DriftWindowingToolkit/dwt.h"
+
+// DSL no longer provides the old Titus_Buffer C++ class, but RadioBot_Shell
+// only uses a small subset of it. This wrapper maps it to DSL_BUFFER.
+class Titus_Buffer {
+	DSL_BUFFER buf;
+public:
+	Titus_Buffer() { buffer_init(&buf, false); }
+	~Titus_Buffer() { buffer_free(&buf); }
+	char * Get() { return buf.data ? buf.data : (char *)""; }
+	uint32 GetLen() { return (uint32)buf.len; }
+	void Append(const char * ptr, int len) { buffer_append(&buf, ptr, len); }
+	void RemoveFromBeginning(uint32 len) { buffer_remove_front(&buf, len); }
+};
 
 struct CONFIG {
 	HINSTANCE hInstance;
