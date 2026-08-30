@@ -83,3 +83,8 @@ Need to grep the rating/request code, reproduce with a test MP3, and patch.
 ### 11. Windows x64 (Win64) build and packaging
 - The current Windows build targets 32-bit (`x86` / `Win32`). Add or verify a proper `x64` configuration for the main bot, Client3, Client5, and plugins.
 - Produce a 64-bit Windows installer/package alongside the 32-bit one, stored in `artifacts/` or the Windows VM output.
+
+### 12. Plain native Windows build (without Docker/VM)
+- The current Windows build path is heavily oriented toward the `dockur/windows` VM and the Linux host scripts (`docker-compose.windows.yml`, `build-windows.sh`, etc.).
+- Make it possible to build on a regular Windows machine by documenting (and optionally scripting) the native dependency setup: Visual Studio Build Tools, vcpkg, `C:\deps`/`C:\OEM` layout, DSL, libfaac, libspopc, and the MSBuild invocation without requiring Docker or the Linux helper scripts.
+- When this is ready, `WINDOWS_BUILD.md` can become the primary native-Windows guide and `WINDOWS_DOCKER_BUILD.md` can remain the optional headless/CI path.

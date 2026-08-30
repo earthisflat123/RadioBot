@@ -1,4 +1,4 @@
-# Windows Build Instructions
+# Windows Build Instructions (Docker + Windows VM)
 
 This document describes how to build the Windows (x86) version of RadioBot on a Linux host using a headless Windows Server 2022 VM running in Docker.
 

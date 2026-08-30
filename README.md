@@ -33,7 +33,7 @@ docker compose up -d
 ## Build options
 
 ### Windows
-For the Windows build — including the headless `dockur/windows` VM setup, vcpkg dependencies, Visual Studio Build Tools, and packaging — see [WINDOWS_BUILD.md](WINDOWS_BUILD.md).
+For the Docker/VM Windows build — including the headless `dockur/windows` VM setup, vcpkg dependencies, Visual Studio Build Tools, and packaging — see [WINDOWS_DOCKER_BUILD.md](WINDOWS_DOCKER_BUILD.md).
 
 ### Linux/Unix
 1. Install dependencies, cmake, git, protoc (profobuf compiler), and core GNU C/C++ compiler/tools (build-essential on Debian systems). You can find most deps by looking in your distro at https://wiki.shoutirc.com/index.php/Installation - you will need the corresponding -dev/-devel packages of course.
