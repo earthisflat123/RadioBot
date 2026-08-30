@@ -27,6 +27,7 @@ The Windows project files reference many third-party libraries under `C:\deps` a
 | `build-windows.sh` | Host script that SSHs into the VM and runs `C:\RadioBot\build-windows.ps1`. |
 | `build-windows.ps1` | Wrapper inside the VM that invokes `C:\OEM\build-radiobot.ps1`. |
 | `prepare-windows-build.sh` | Generates an SSH key pair and stages the public key in `windows-oem/`. |
+| `ConfigWizard/ConfigWizard.vcxproj` | The configuration wizard GUI; built separately from `IRCBot.sln` because it also uses `move_and_sign.bat`/`SolutionDir`. |
 | `.gitignore` | Ignores `windows-storage/`, `artifacts/`, and `windows-oem/id_rsa*`. |
 
 ## Requirements
@@ -94,6 +95,7 @@ Built artifacts appear in `./artifacts/` on the host. The main executables are:
 
 - `RadioBot.exe`
 - `AutoDJ.exe` (the standalone AutoDJ binary)
+- `ConfigWizard.exe` (the setup/config wizard GUI)
 - `editusers.exe`
 - `MusicScanner2.exe`
 - `mp3sync.exe`
@@ -104,11 +106,13 @@ Plugins are in `./artifacts/plugins/` and `./artifacts/Plugins/AutoDJ/`.
 
 ## Restoring dependencies on a fresh Windows VM
 
-If you need to recreate the Windows build VM from scratch, installing vcpkg packages and building the source dependencies (`libfaac`, `libspopc`, DSL, etc.) is the slow part. A pre-packaged dependency archive is stored in the repo root:
+If you need to recreate the Windows build VM from scratch, installing vcpkg packages and building the source dependencies (`libfaac`, `libspopc`, DSL, etc.) is the slow part. You can optionally use a pre-packaged dependency archive to restore the long-build pieces quickly.
+
+The archive is **not tracked in Git** because it is large (≈ 625 MB). If you have a copy, place it in the repo root (which appears as `Z:\` inside the VM) or in `C:\OEM`:
 
 - `radiobot-windows-deps.7z` (≈ 625 MB)
 
-It contains everything vcpkg and the build scripts expect at their normal paths:
+It should contain everything vcpkg and the build scripts expect at their normal paths:
 
 - `deps/` → `C:\deps`
 - `vcpkg/` → `C:\vcpkg` (vcpkg tool + `installed/`, but without `buildtrees/`, `downloads/`, or `packages/`)
@@ -139,9 +143,9 @@ Archive use is opt-in. The default `windows-oem/setup.ps1` behaviour is still to
 
 After extraction, `./build-windows.sh` can run without waiting for vcpkg or libfaac/libspopc to build. The source dependencies (`driftmeshcore` for `MeshCore`) are still cloned from the network on first build unless they are also present in `C:\RadioBot\v5\Plugins\MeshCore\driftmeshcore`.
 
-## Optional projects not built
+## Build coverage
 
-The following projects are now built by default:
+### Built by default
 
 - `TTS_Services` – fixed by adding `_HAS_STD_BYTE=0` to `Directory.Build.props`.
 - `Mumble` – fixed by generating `Mumble.pb.cc`/`Mumble.pb.h` with `protoc` and adding `%(AdditionalIncludeDirectories)` to `Mumble.vcxproj`.
@@ -154,7 +158,9 @@ The following projects are now built by default:
 - `adj_decenc_ffmpeg` – fixed by installing `ffmpeg:x86-windows` from vcpkg and patching `ffmpeg_encoder.cpp` for FFmpeg 9.x API changes.
 - `RadioBot_Shell` – fixed by adding a small `Titus_Buffer` wrapper around `DSL_BUFFER` in `shell.h`.
 
-The following projects are still pruned from the solution because their dependencies are missing or the project itself is incomplete:
+### Pruned / optional
+
+The following projects are still removed from the solution because their dependencies are missing or the project itself is incomplete:
 
 - `adj_enc_aacplus` – intentionally skipped. It requires `libaacplus`, which wraps the 3GPP reference AAC+ encoder and has restrictive licensing (the 3GPP source is not freely redistributable). The official Windows installer also does not ship `adj_enc_aacplus.dll`, so this matches the upstream release. Use `adj_enc_aac` (FAAC) or `adj_enc_ffmpeg` for AAC/HE-AAC encoding instead.
 - `ibViralSound` – no `.vcxproj` file is present.

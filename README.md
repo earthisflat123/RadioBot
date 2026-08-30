@@ -30,13 +30,12 @@ export UID GID=$(id -g)
 docker compose up -d
 ```
 
-## Compiling on Windows
-In the IRCBot folder, load IRCBot.sln. A Windows build is going to be harder just because there are so many dependencies if you want to build everything. I have (and the solution is set up for) a folder c:\deps with a lib and include folder and I keep all my deps in it like on a Linux directory structure. The core things you will need: 
- 
-**Drift Standard Libraries:** https://github.com/DriftSolutions/DSL  
-**OpenSSL:** I recommend https://slproweb.com/products/Win32OpenSSL.html
+## Build options
 
-## Compiling on Linux/Unix
+### Windows
+For the Windows build — including the headless `dockur/windows` VM setup, vcpkg dependencies, Visual Studio Build Tools, and packaging — see [WINDOWS_BUILD.md](WINDOWS_BUILD.md).
+
+### Linux/Unix
 1. Install dependencies, cmake, git, protoc (profobuf compiler), and core GNU C/C++ compiler/tools (build-essential on Debian systems). You can find most deps by looking in your distro at https://wiki.shoutirc.com/index.php/Installation - you will need the corresponding -dev/-devel packages of course.
 
 **On Ubuntu 24.04 or 22.10:**
@@ -56,7 +55,7 @@ _(Please let me know if I missed any.)_
 4. Run: cmake ..  
 5. make -j**X** (where **X** is however many CPU cores you have)
 
-## Building a Debian Trixie .deb package
+### Debian package
 
 A self-contained Debian package can be built with Docker using the Trixie-based builder in the repo. From the repo root:
 
@@ -111,44 +110,4 @@ The package installs:
 - `/usr/bin/radiobot` — wrapper that runs from `/var/lib/radiobot`
 - `/var/lib/radiobot` — runtime data directory, created by the `postinst` script
 
-## Headless Windows build on Linux (dockur/windows)
 
-You can build the Windows version on a Linux host by running a Windows VM inside a Docker container, using [dockur/windows](https://github.com/dockur/windows). This is completely headless: once the VM is running, all interaction is via SSH and file shares.
-
-### Requirements
-
-- Linux host with `/dev/kvm` and `/dev/net/tun` available
-- Docker Compose
-- At least 64 GB free disk space and 8 GB RAM
-
-### Quick start
-
-```bash
-# Generate an SSH key pair and stage the public key for the Windows VM
-./prepare-windows-build.sh
-
-# Start the Windows VM. This downloads a Windows Server 2022 evaluation image
-# and installs it automatically; it can take 30-60 minutes.
-docker compose -f docker-compose.windows.yml up -d
-
-# Monitor progress at http://localhost:8006 (web VNC) or RDP to localhost:3389
-# The setup script (windows-oem/setup.ps1) installs Visual Studio Build Tools,
-# vcpkg, dependencies in C:\deps, and an OpenSSH server.
-
-# Once the VM is ready, build:
-./build-windows.sh
-
-# Built .exe and .dll files are copied to the shared folder and appear in
-# ./artifacts/ on the host.
-```
-
-### How it works
-
-- `docker-compose.windows.yml` runs `dockurr/windows` with Windows Server 2022.
-- `windows-oem/install.bat` is executed automatically after Windows setup; it
-  calls `setup.ps1`, which installs Build Tools, vcpkg packages, OpenSSL, and
-  stages everything under `C:\deps`.
-- The RadioBot source is copied from the shared drive (`Z:`) to `C:\RadioBot`.
-- `build-windows.sh` SSHs into the VM (localhost:2222) and runs
-  `build-windows.ps1`, which invokes `MSBuild IRCBot.sln` and copies outputs
-  back to `Z:\artifacts`, which appears as `./artifacts/` on the host.
