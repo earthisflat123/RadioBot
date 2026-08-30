@@ -55,3 +55,31 @@ Need to grep the rating/request code, reproduce with a test MP3, and patch.
 - Use the wizard to create `ircbot.conf`.
 - Start the bot against the Docker IRCd.
 - Play/request/rate a song with a `'` in the title to confirm fix #4.
+
+### 6. Data retroactive cleanup for the `!rate` bug
+- Before the `!rate` single-quote fix, any song title containing `'` may have been stored incorrectly/duplicated in the SQLite `ircbot.db` (or any backend). In a production deployment it would be useful to scan the `Votes`/`Ratings` tables and repair/re-merge any broken rows created by the bug.
+- Investigate whether this is possible/needed. If yes, write a standalone cleanup script (Python or SQL) that can be run against an existing `ircbot.db` (or MariaDB tables if/when ratings are moved there).
+
+### 7. Test `!rate` bug fix in the Linux/Docker run style
+- Verify the single-quote `!rate` fix works when RadioBot is built and run inside a Linux container (the current manual tests were done on Windows). This also checks that the Docker build path still produces a working bot.
+
+### 8. Fix volume mapping for persistent bot data
+- RadioBot stores runtime data (e.g. `ircbot.db`, config rewrites, downloaded files, logs) inside the container but those paths are not mapped to host volumes. On container recreation this data is lost, which is a serious bug.
+- Identify all paths the bot writes to, add them as named or bind volumes in the Docker Compose/service files, and document the persistence model.
+
+### 9. Automatic `.deb` package builds
+- Create Docker-based build/packaging containers for:
+  - Ubuntu 22.04
+  - Ubuntu 24.04
+  - Debian Bookworm
+  - Debian Trixie
+- Each container should build RadioBot and produce `.deb` package(s).
+- Store the resulting packages on the host in an `artifacts/` folder (or another sensible volume location) so they survive container restarts.
+
+### 10. Validate Client3 and Client5 builds
+- After all the vcpkg/wxWidgets project changes, make sure the `Client3` and `Client5` solutions still build and run cleanly (no missing resources, no stale icon/cursor references, correct vcpkg library links).
+- Run the built `Client3.exe` and `Client5.exe` binaries for a quick smoke test.
+
+### 11. Windows x64 (Win64) build and packaging
+- The current Windows build targets 32-bit (`x86` / `Win32`). Add or verify a proper `x64` configuration for the main bot, Client3, Client5, and plugins.
+- Produce a 64-bit Windows installer/package alongside the 32-bit one, stored in `artifacts/` or the Windows VM output.
