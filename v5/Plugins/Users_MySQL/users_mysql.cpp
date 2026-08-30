@@ -59,8 +59,9 @@ void ConnectMySQL() {
 			}
 		}
 		if (mu_config.ready) {
-			conx.Query("CREATE TABLE IF NOT EXISTS `IRCBot_Users` (`ID` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, `Nick` VARCHAR( 64 ) NOT NULL UNIQUE, `Pass` VARCHAR( 255 ) NOT NULL DEFAULT '', `Level` TINYINT NOT NULL DEFAULT '0', `Flags` INT UNSIGNED NOT NULL DEFAULT '0', `Seen` INT NOT NULL DEFAULT '0', `Created` INT NOT NULL DEFAULT '0');");
+			conx.Query("CREATE TABLE IF NOT EXISTS `IRCBot_Users` (`ID` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, `Nick` VARCHAR( 64 ) NOT NULL UNIQUE, `Pass` VARBINARY( 255 ) NOT NULL DEFAULT '', `Level` TINYINT NOT NULL DEFAULT '0', `Flags` INT UNSIGNED NOT NULL DEFAULT '0', `Seen` INT NOT NULL DEFAULT '0', `Created` INT NOT NULL DEFAULT '0');");
 			conx.Query("ALTER TABLE `IRCBot_Users` MODIFY `Level` TINYINT NOT NULL DEFAULT '0'");
+			conx.Query("ALTER TABLE `IRCBot_Users` MODIFY `Pass` VARBINARY( 255 ) NOT NULL DEFAULT ''");
 			conx.Query("CREATE TABLE IF NOT EXISTS `IRCBot_UserHostmasks` (`ID` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, `Nick` VARCHAR( 64 ) NOT NULL DEFAULT '', `Hostmask` VARCHAR( 255 ) NOT NULL DEFAULT '', UNIQUE uniq_nick_hostmask (Nick,Hostmask));");
 		} else {
 			api->ib_printf(_("MySQL Users -> Could not connect to MySQL server, disabling MySQL support...\n"));
