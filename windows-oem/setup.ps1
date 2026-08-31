@@ -388,6 +388,20 @@ if ($UseDepsArchive) {
         }
     }
 
+    # 6a. Free disk space by removing vcpkg intermediate build artifacts. The
+    # installed tree under C:\vcpkg\installed and the binary cache are kept.
+    Write-Log "Cleaning up vcpkg intermediate build artifacts to free disk space..."
+    @("$vcpkgDir\buildtrees", "$vcpkgDir\downloads", "$vcpkgDir\packages") | ForEach-Object {
+        if (Test-Path $_) {
+            try {
+                Remove-Item $_ -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Log "Removed $_"
+            } catch {
+                Write-Log "Could not remove $_ : $_"
+            }
+        }
+    }
+
     # Build the Drift Standard Library (DSL) required by RadioBot
     if (Test-Path "$OEM\build-dsl.ps1") {
         Write-Log "Building DSL (Drift Standard Library)..."
