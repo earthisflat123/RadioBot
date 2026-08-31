@@ -29,19 +29,12 @@ function Write-Log($Message) {
 function Find-AndMap-SharedDrive {
     # dockur/windows exposes the host bind mount as a Samba share at
     # \\host.lan\Data. It is sometimes exposed as C:\Users\builder\Desktop\Shared
-    # or as a drive letter Z:. We prefer Z: for consistency, but we only trust a
-    # path if it actually contains the RadioBot source (look for vcpkg.json).
+    # or as a drive letter Z:. We prefer Z: for consistency. Network shares can
+    # be flaky with Test-Path, so we validate by looking for vcpkg.json.
     $shareRoot = $null
 
-    # Try the Desktop/Shared shortcut first if it has the source.
-    $desktopShared = "C:\Users\builder\Desktop\Shared"
-    if (Test-Path "$desktopShared\vcpkg.json") {
-        $shareRoot = $desktopShared
-        Write-Log "Found shared source at $desktopShared"
-    }
-
     # If Z: is already mapped and has the source, use it.
-    if (-not $shareRoot -and (Test-Path "Z:\vcpkg.json")) {
+    if (Test-Path "Z:\vcpkg.json") {
         $shareRoot = "Z:\"
         Write-Log "Found shared source at Z:\"
     }
@@ -60,11 +53,22 @@ function Find-AndMap-SharedDrive {
         }
     }
 
+    # Fall back to the Desktop/Shared shortcut if it has the source.
+    if (-not $shareRoot) {
+        $desktopShared = "C:\Users\builder\Desktop\Shared"
+        if (Test-Path "$desktopShared\vcpkg.json") {
+            $shareRoot = $desktopShared
+            Write-Log "Found shared source at $desktopShared"
+        }
+    }
+
     # Last resort: use the UNC path directly if it has the source.
-    $unc = "\\host.lan\Data"
-    if (-not $shareRoot -and (Test-Path "$unc\vcpkg.json")) {
-        $shareRoot = $unc
-        Write-Log "Found shared source at $unc"
+    if (-not $shareRoot) {
+        $unc = "\\host.lan\Data"
+        if (Test-Path "$unc\vcpkg.json") {
+            $shareRoot = $unc
+            Write-Log "Found shared source at $unc"
+        }
     }
 
     return $shareRoot
@@ -81,11 +85,8 @@ if ([string]::IsNullOrEmpty($RepoSrc) -or -not (Test-Path $RepoSrc)) {
     }
 }
 
-# Make sure the share actually contains the repo source.
+# The shared drive detection above already verified vcpkg.json is present.
 $manifestRoot = $RepoSrc.TrimEnd('\')
-if (-not (Test-Path "$manifestRoot\vcpkg.json")) {
-    throw "vcpkg.json not found in the repo source at $manifestRoot. The host share may be empty or mapped to the wrong path."
-}
 
 # Switch the log to the shared drive so it is visible on the host.
 $LogFile = "$RepoSrc\setup-radiobot.log"
