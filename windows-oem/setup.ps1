@@ -304,9 +304,6 @@ if ($UseDepsArchive) {
     if (-not (Test-Path "C:\deps")) {
         throw "deps directory not found after archive extraction."
     }
-    if (-not (Test-Path "C:\deps\lib\libfaac.lib")) {
-        throw "libfaac not found after archive extraction; archive may be incomplete."
-    }
     if (-not (Test-Path "$vcpkgDir\installed\x86-windows")) {
         throw "vcpkg installed tree not found after archive extraction."
     }
@@ -417,6 +414,41 @@ if ($UseDepsArchive) {
     # above. The separate slproweb.com installer is no longer reliable (404),
     # so we rely on the vcpkg port.
     Write-Log "OpenSSL will be provided by vcpkg (staged to C:\deps)."
+}
+
+# 8. Build libfaac and libspopc from source. These libraries are not in vcpkg,
+# so build them now so they are included in the dependency archive and do not
+# need to be rebuilt during every RadioBot build.
+if (Test-Path "$OEM\build-libfaac.ps1") {
+    if (-not (Test-Path "C:\deps\lib\libfaac.lib")) {
+        Write-Log "Building libfaac from source..."
+        try {
+            & "$OEM\build-libfaac.ps1"
+            Write-Log "libfaac built."
+        } catch {
+            Write-Log "libfaac build failed, the RadioBot build will retry: $_"
+        }
+    } else {
+        Write-Log "libfaac already present."
+    }
+} else {
+    Write-Log "libfaac build script not found at $OEM\build-libfaac.ps1 - will be built during RadioBot build."
+}
+
+if (Test-Path "$OEM\build-libspopc.ps1") {
+    if (-not (Test-Path "C:\deps\lib\libspopc.lib")) {
+        Write-Log "Building libspopc from source..."
+        try {
+            & "$OEM\build-libspopc.ps1"
+            Write-Log "libspopc built."
+        } catch {
+            Write-Log "libspopc build failed, the RadioBot build will retry: $_"
+        }
+    } else {
+        Write-Log "libspopc already present."
+    }
+} else {
+    Write-Log "libspopc build script not found at $OEM\build-libspopc.ps1 - will be built during RadioBot build."
 }
 
 # OpenSSH was enabled at the start of this script so long-running steps can be
