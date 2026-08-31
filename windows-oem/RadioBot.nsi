@@ -2,6 +2,7 @@ SetCompressor /SOLID lzma
 Unicode True
 CRCCheck on
 RequestExecutionLevel admin
+ShowInstDetails show
 
 !ifndef PAYLOADDIR
   !define PAYLOADDIR "C:\RadioBot\payload-official"
@@ -64,7 +65,7 @@ FunctionEnd
 
 Section "RadioBot" sec_main
   SetOutPath "$INSTDIR"
-  SetDetailsPrint none
+  SetDetailsPrint both
   File /r "${PAYLOADDIR}\*"
   SetDetailsPrint both
 

@@ -77,21 +77,20 @@ $afterOverlay = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Coun
 Write-Log "Payload contains $afterOverlay files after overlay."
 if ($LASTEXITCODE -ge 8) { throw "robocopy overlay failed" }
 
-# 3b. Remove stale/duplicate binaries left over from the official installer that
-#     conflict with the current build's shared dependencies.
-$PruneFiles = @(
-    "avcodec-60.dll", "avdevice-60.dll", "avfilter-9.dll", "avformat-60.dll",
-    "avutil-58.dll", "swresample-4.dll", "swscale-7.dll",
-    "client.exe", "ffmpeg.exe", "ffprobe.exe", "lame.exe",
-    "libfaac.dll", "libmariadb.dll", "libsndfile-1.dll",
-    "libssl-3-x64.dll", "lua53.dll", "taglib.dll"
-)
-foreach ($f in $PruneFiles) {
-    $p = Join-Path $PayloadDir $f
-    if (Test-Path $p) { Remove-Item $p -Force; Write-Log "Pruned $f" }
-}
+# 3b. Remove only the temporary NSIS plugin directory that 7-Zip extracts from
+#     the official installer. All official extra files (DJ Package, language
+#     data, trivia, sam_scripts, legacy tools, etc.) are preserved. The new
+#     build output was already overlaid on top, so any files with the same
+#     name now contain the freshly built version.
 $djPackage = Join-Path $PayloadDir "DJ Package"
-if (Test-Path $djPackage) { Remove-Item $djPackage -Recurse -Force; Write-Log "Pruned DJ Package" }
+if (Test-Path $djPackage) {
+    # Remove any old MusicScanner binaries inside the DJ Package that would
+    # otherwise be mistaken for the current build's main MusicScanner.exe.
+    @("MusicScanner.exe", "MusicScanner2.exe") | ForEach-Object {
+        $p = Join-Path $djPackage $_
+        if (Test-Path $p) { Remove-Item $p -Force; Write-Log "Pruned DJ Package\$_" }
+    }
+}
 
 # 4. Ensure the runtime config/language files are at the payload root.
 $IrcbotText = "$RepoDir\ircbot.text"
