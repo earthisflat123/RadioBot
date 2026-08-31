@@ -33,7 +33,10 @@ Var hConfigWizard
 !insertmacro MUI_PAGE_DIRECTORY
 Page custom ConfigPage ConfigPageLeave
 !insertmacro MUI_PAGE_INSTFILES
-!insertmacro MUI_PAGE_FINISH
+
+; No MUI_PAGE_FINISH on purpose: we want the installer to stay on the
+; InstFiles page with the details log visible and a Close button, just like the
+; original official installer.
 
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
