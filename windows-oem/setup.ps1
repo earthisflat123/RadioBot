@@ -11,12 +11,14 @@ $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 # NOTE: C:\OEM is copied into the Windows install image by dockur/windows,
-# it is not a live share. Write the detailed log to the host shared drive so
-# it can be tailed from the host in real time.
+# it is not a live share. Writing to the Samba share from an elevated
+# PowerShell session is unreliable because mapped drives are scoped to the
+# logon token. We keep the detailed log locally and the host can SSH in and
+# tail it, avoiding all Z: mapping issues.
 
 $OEM = "C:\OEM"
 $TempDir = "C:\Temp"
-$LogFile = "$TempDir\setup.log"
+$LogFile = "$TempDir\setup-radiobot.log"
 New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 
 function Write-Log($Message) {
@@ -74,6 +76,15 @@ function Find-AndMap-SharedDrive {
     return $shareRoot
 }
 
+# Enable headless access as early as possible so long-running installs can be
+# inspected/debugged from the host without waiting for setup to finish.
+Write-Log "=== Starting RadioBot Windows build environment setup ==="
+Write-Log "Enabling OpenSSH early..."
+Install-OpenSSHServer
+Add-HostSSHPublicKey -OemDir "C:\OEM"
+Write-Log "OpenSSH ready. The host can tail this log with:"
+Write-Log "  ssh -p 2222 -i ~/.ssh/radiobot_windows_builder builder@localhost powershell -Command 'Get-Content -Wait C:\Temp\setup-radiobot.log'"
+
 # Resolve the host shared folder early. Everything else (source copy, vcpkg
 # manifest, and the log) depends on having a working share.
 if ([string]::IsNullOrEmpty($RepoSrc) -or -not (Test-Path $RepoSrc)) {
@@ -88,9 +99,6 @@ if ([string]::IsNullOrEmpty($RepoSrc) -or -not (Test-Path $RepoSrc)) {
 # The shared drive detection above already verified vcpkg.json is present.
 $manifestRoot = $RepoSrc.TrimEnd('\')
 
-# Switch the log to the shared drive so it is visible on the host.
-$LogFile = "$RepoSrc\setup-radiobot.log"
-Write-Log "=== Starting RadioBot Windows build environment setup ==="
 Write-Log "Using host shared source: $RepoSrc"
 
 function Invoke-WithRetry {
@@ -176,18 +184,11 @@ if (-not $UseDepsArchive -and $env:USE_RADIOSBOT_DEPS_ARCHIVE -eq '1') {
     $UseDepsArchive = $true
 }
 
-Write-Log "=== Starting RadioBot Windows build environment setup ==="
 if ($UseDepsArchive) {
     Write-Log "Archive restore requested: dependencies will be extracted from radiobot-windows-deps.7z if found"
 } else {
     Write-Log "Fresh install mode: vcpkg packages and source dependencies will be built from scratch"
 }
-
-# Enable headless access as early as possible so long-running installs can be
-# inspected/debugged from the host without waiting for setup to finish.
-Write-Log "Enabling OpenSSH early..."
-Install-OpenSSHServer
-Add-HostSSHPublicKey -OemDir "C:\OEM"
 
 # 1. Install Chocolatey if missing
 $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
