@@ -45,18 +45,17 @@ if (Test-Path $archive) {
 Write-Log "Creating dependency archive at $archive ..."
 
 # Archive the vcpkg installed tree and C:\deps. Exclude heavy intermediates that
-# are not needed for building RadioBot. Keep downloads\tools so vcpkg does not
-# have to re-download cmake/ninja/msys2.
+# are not needed for building RadioBot. We do NOT archive buildtrees, packages,
+# downloads, cache, ports, versions or debug libraries.
 & $SevenZip a -mx=3 -m0=lzma2 `
     "-xr!vcpkg\.git" `
     "-xr!vcpkg\buildtrees" `
     "-xr!vcpkg\packages" `
-    "-xr!vcpkg\downloads\*.tar.*" `
-    "-xr!vcpkg\downloads\*.tar" `
-    "-xr!vcpkg\downloads\*.zip" `
-    "-xr!vcpkg\downloads\*.exe" `
-    "-xr!vcpkg\downloads\*.xz" `
-    "-xr!vcpkg\downloads\*.zst" `
+    "-xr!vcpkg\downloads" `
+    "-xr!vcpkg\cache" `
+    "-xr!vcpkg\ports" `
+    "-xr!vcpkg\versions" `
+    "-xr!vcpkg\installed\*\debug" `
     $archive C:\vcpkg C:\deps
 
 if ($LASTEXITCODE -gt 1) { throw "7z archive creation failed with exit code $LASTEXITCODE" }
