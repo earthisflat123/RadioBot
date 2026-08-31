@@ -325,20 +325,35 @@ if ($UseDepsArchive) {
     # 5. vcpkg packages (x86 to match the Win32 .vcxproj files)
     $triplet = "x86-windows"
 
-    # Use a manifest with a builtin-baseline so package versions are pinned and
-    # reproducible across builds. The manifest lives in the repo source tree.
-    $manifestRoot = $RepoSrc.TrimEnd('\')
-    if (-not (Test-Path "$manifestRoot\vcpkg.json")) {
-        throw "vcpkg.json not found in the repo source at $manifestRoot. It is required for pinned package versions."
+    # Copy the RadioBot source into a local directory before running vcpkg so the
+    # build does not depend on the sometimes-flaky Samba mapped drive.
+    if (Test-Path $RepoSrc) {
+        Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
+        New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
+        & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
+            /XD "windows-storage" "windows-oem" ".git" "vcpkg-cache" "artifacts" ".worktree" `
+            /Z /MT:4 /R:3 /W:5 /NDL /NFL
+        Write-Log "Source copied."
+
+        # Save a pristine copy of the solution for the build script to prune.
+        $Sln = "$RepoDst\IRCBot\IRCBot.sln"
+        if (Test-Path $Sln) {
+            Copy-Item $Sln "$OEM\IRCBot.sln.orig" -Force
+            Write-Log "Saved pristine IRCBot.sln to $OEM\IRCBot.sln.orig."
+        }
+    } else {
+        Write-Log "Shared source not found at $RepoSrc. You will need to copy the source manually."
     }
 
-    # Enable vcpkg binary caching. A local cache under the vcpkg root speeds up
-    # repeated installs in the same VM; a cache on the shared drive (Z:) survives
-    # VM recreation and is used if it is mounted.
-    $binarySources = "clear;files,$vcpkgDir\cache,readwrite"
-    if (Test-Path "Z:\") {
-        $binarySources += ";files,Z:\vcpkg-cache,readwrite"
+    # Use the local copy for the vcpkg manifest. This avoids any issues with
+    # elevated sessions not seeing the mapped Z: drive.
+    $manifestRoot = "$RepoDst"
+    if (-not (Test-Path "$manifestRoot\vcpkg.json")) {
+        throw "vcpkg.json not found in the repo source at $manifestRoot. The robocopy may have failed."
     }
+
+    # Enable vcpkg binary caching. Keep it local to avoid network-drive issues.
+    $binarySources = "clear;files,$vcpkgDir\cache,readwrite"
     $env:VCPKG_BINARY_SOURCES = $binarySources
     Write-Log "vcpkg binary sources: $binarySources"
 
@@ -398,25 +413,6 @@ if ($UseDepsArchive) {
     } catch {
         Write-Log "OpenSSL install failed (will continue with vcpkg copy if present): $_"
     }
-}
-
-# 8. Copy RadioBot source from the shared folder (Z:) to C:\RadioBot
-if (Test-Path $RepoSrc) {
-    Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
-    New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
-    & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
-        /XD "windows-storage" "windows-oem" ".git" "vcpkg-cache" "artifacts" ".worktree" `
-        /Z /MT:4 /R:3 /W:5 /NDL /NFL
-    Write-Log "Source copied."
-
-    # Save a pristine copy of the solution for the build script to prune.
-    $Sln = "$RepoDst\IRCBot\IRCBot.sln"
-    if (Test-Path $Sln) {
-        Copy-Item $Sln "$OEM\IRCBot.sln.orig" -Force
-        Write-Log "Saved pristine IRCBot.sln to $OEM\IRCBot.sln.orig."
-    }
-} else {
-    Write-Log "Shared source not found at $RepoSrc. You will need to copy the source manually."
 }
 
 # OpenSSH was enabled at the start of this script so long-running steps can be
