@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$OutFile = "C:\RadioBot\artifacts\RadioBot-setup.exe"
+    [string]$OutFile = ""
 )
 
 #Requires -Version 5.1
@@ -15,10 +15,14 @@ param(
     an NSIS installer named C:\RadioBot\RadioBot-setup.exe.
 
     The original installer is loaded in this order:
-      1. Z:\official-installer.exe     (host-provided file in the shared folder)
+      1. Z:\official-installer.exe     (host-provided or previously cached file)
       2. C:\RadioBot\official-installer.exe (already in the VM)
       3. $env:RADIOSBOT_OFFICIAL_INSTALLER_URL (host-configured URL)
       4. $OfficialUrl                    (default upstream URL)
+
+    When a host shared drive (Z:) is reachable, both the downloaded original
+    installer and the final RadioBot-setup.exe are cached there so they survive
+    VM recreation. A local copy is always kept for immediate use.
 
     The NSIS source script is in the same C:\OEM directory (copied from
     windows-oem/RadioBot.nsi) and uses /D command-line defines for the payload
@@ -30,8 +34,7 @@ $ErrorActionPreference = "Stop"
 $RepoDir      = "C:\RadioBot"
 $OutputDir    = "$RepoDir\v5\Output"
 $PayloadDir   = "$RepoDir\payload-official"
-$InstallerSrc = "$RepoDir\official-installer.exe"
-$SharedSrc    = "Z:\official-installer.exe"
+$LocalInstall = "$RepoDir\official-installer.exe"
 $OEMDir       = "C:\OEM"
 $NsisFile     = "$OEMDir\RadioBot.nsi"
 $SevenZip     = "C:\Program Files\7-Zip\7z.exe"
@@ -43,7 +46,27 @@ function Write-Log($msg) {
     Write-Host "$ts $msg"
 }
 
-# 1. Ensure NSIS is installed.
+# 1. Map the host shared drive to Z: if it is not already available, so we can
+#    cache the original installer and the final setup on the host.
+if (-not (Test-Path "Z:\")) {
+    try {
+        & cmd /c "net use Z: \\host.lan\Data /y" 2>&1 | Out-Null
+    } catch {
+        Write-Warning "Could not map Z: drive: $_"
+    }
+}
+$HostRoot = if (Test-Path "Z:\") { "Z:" } else { $null }
+$HostInstall = if ($HostRoot) { "$HostRoot\official-installer.exe" } else { $null }
+$HostArtifacts = if ($HostRoot) { "$HostRoot\artifacts" } else { $null }
+$FallbackArtifacts = "$RepoDir\artifacts"
+
+# 2. Determine the installer output path. Prefer the host shared drive, but
+#    always write a local copy as well.
+if ([string]::IsNullOrWhiteSpace($OutFile)) {
+    $OutFile = "$FallbackArtifacts\RadioBot-setup.exe"
+}
+
+# 3. Ensure NSIS is installed.
 if (-not (Test-Path $MakeNsis)) {
     Write-Log "NSIS not found, installing via Chocolatey..."
     $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
@@ -51,27 +74,41 @@ if (-not (Test-Path $MakeNsis)) {
     if ($LASTEXITCODE -ne 0) { throw "Failed to install NSIS" }
 }
 
-# 2. Ensure we have the official installer payload.
-# Prefer a host-provided installer, then a local one, then a configured URL,
-# then the default upstream URL.
+# 4. Ensure we have the official installer payload.
+# Prefer a cached copy on the host shared drive, then a local one, then a
+# configured URL, then the default upstream URL.
 $needDownload = $true
-if (Test-Path $SharedSrc) {
-    Write-Log "Using host-provided installer $SharedSrc"
-    Copy-Item $SharedSrc $InstallerSrc -Force
+$InstallerSrc = $LocalInstall
+if ($HostInstall -and (Test-Path $HostInstall)) {
+    Write-Log "Using host-cached installer $HostInstall"
+    Copy-Item $HostInstall $InstallerSrc -Force
     $needDownload = $false
 }
 if ($needDownload -and (Test-Path $InstallerSrc)) {
-    Write-Log "Using existing installer $InstallerSrc"
+    Write-Log "Using existing local installer $InstallerSrc"
     $needDownload = $false
 }
 if ($needDownload -and $env:RADIOSBOT_OFFICIAL_INSTALLER_URL) {
     Write-Log "Downloading official installer from $env:RADIOSBOT_OFFICIAL_INSTALLER_URL..."
-    Invoke-WebRequest -Uri $env:RADIOSBOT_OFFICIAL_INSTALLER_URL -OutFile $InstallerSrc -UserAgent "Mozilla/5.0"
+    $downloadTarget = if ($HostInstall) { $HostInstall } else { $InstallerSrc }
+    Invoke-WebRequest -Uri $env:RADIOSBOT_OFFICIAL_INSTALLER_URL -OutFile $downloadTarget -UserAgent "Mozilla/5.0"
+    if ($HostInstall -and (Test-Path $HostInstall) -and ($downloadTarget -ne $InstallerSrc)) {
+        Copy-Item $HostInstall $InstallerSrc -Force
+    }
     $needDownload = $false
 }
 if ($needDownload) {
-    Write-Log "Official installer not found at $InstallerSrc, downloading from $OfficialUrl..."
-    Invoke-WebRequest -Uri $OfficialUrl -OutFile $InstallerSrc -UserAgent "Mozilla/5.0"
+    Write-Log "Official installer not found, downloading from $OfficialUrl..."
+    $downloadTarget = if ($HostInstall) { $HostInstall } else { $InstallerSrc }
+    Invoke-WebRequest -Uri $OfficialUrl -OutFile $downloadTarget -UserAgent "Mozilla/5.0"
+    if ($HostInstall -and (Test-Path $HostInstall) -and ($downloadTarget -ne $InstallerSrc)) {
+        Copy-Item $HostInstall $InstallerSrc -Force
+    }
+}
+
+# If the cache exists but the local copy is missing, copy it locally.
+if ($HostInstall -and (Test-Path $HostInstall) -and -not (Test-Path $InstallerSrc)) {
+    Copy-Item $HostInstall $InstallerSrc -Force
 }
 
 # Always rebuild the payload from the chosen installer so language files and
@@ -147,6 +184,21 @@ if (Test-Path $OutFile) {
     Write-Log "Installer built: $OutFile"
     $size = (Get-Item $OutFile).Length / 1MB
     Write-Log "Size: $size MB"
+
+    # Cache the final installer on the host shared drive if available.
+    if ($HostArtifacts) {
+        New-Item -ItemType Directory -Force -Path $HostArtifacts | Out-Null
+        $hostOut = "$HostArtifacts\$(Split-Path -Leaf $OutFile)"
+        Copy-Item $OutFile $hostOut -Force
+        Write-Log "Cached installer on host shared drive: $hostOut"
+    }
 } else {
     throw "Installer output not found"
+}
+
+# Cache the original installer on the host shared drive if available and not
+# already there, so it survives VM recreation.
+if ($HostInstall -and (Test-Path $InstallerSrc) -and (-not (Test-Path $HostInstall) -or (Get-Item $HostInstall).Length -ne (Get-Item $InstallerSrc).Length)) {
+    Copy-Item $InstallerSrc $HostInstall -Force
+    Write-Log "Cached official installer on host shared drive: $HostInstall"
 }
