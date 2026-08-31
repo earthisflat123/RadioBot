@@ -23,7 +23,7 @@ function Write-Log($Message) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $line = "$ts $Message"
     Write-Output $line
-    Add-Content -Path $LogFile -Value $line
+    [System.IO.File]::AppendAllText($LogFile, "$line`r`n")
 }
 
 function Find-AndMap-SharedDrive {
