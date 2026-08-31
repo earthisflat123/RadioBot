@@ -24,7 +24,7 @@ New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 function Write-Log($Message) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $line = "$ts $Message"
-    Write-Output $line
+    Write-Host $line
     [System.IO.File]::AppendAllText($LogFile, "$line`r`n")
 }
 
