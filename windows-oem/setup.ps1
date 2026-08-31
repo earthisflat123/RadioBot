@@ -397,21 +397,10 @@ if ($UseDepsArchive) {
         Write-Log "DSL build script not found at $OEM\build-dsl.ps1 - DSL will need to be built manually."
     }
 
-    # 7. Prebuilt OpenSSL (the project README recommends slproweb.com)
-    Write-Log "Installing prebuilt OpenSSL..."
-    $sslUrl = "https://slproweb.com/download/Win32OpenSSL-3_4_1.exe"
-    $sslInstaller = "$TempDir\Win32OpenSSL.exe"
-    try {
-        Invoke-WithRetry { Invoke-WebRequest -Uri $sslUrl -OutFile $sslInstaller }
-        & $sslInstaller /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="C:\deps\OpenSSL-Win32"
-        if (Test-Path "C:\deps\OpenSSL-Win32") {
-            Copy-Item -Path "C:\deps\OpenSSL-Win32\include\*" -Destination "$deps\include" -Recurse -Force -ErrorAction SilentlyContinue
-            Copy-Item -Path "C:\deps\OpenSSL-Win32\lib\*" -Destination "$deps\lib" -Recurse -Force -ErrorAction SilentlyContinue
-            Copy-Item -Path "C:\deps\OpenSSL-Win32\bin\*.dll" -Destination "$deps\bin" -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    } catch {
-        Write-Log "OpenSSL install failed (will continue with vcpkg copy if present): $_"
-    }
+    # 7. OpenSSL is provided by the vcpkg manifest and staged into C:\deps
+    # above. The separate slproweb.com installer is no longer reliable (404),
+    # so we rely on the vcpkg port.
+    Write-Log "OpenSSL will be provided by vcpkg (staged to C:\deps)."
 }
 
 # OpenSSH was enabled at the start of this script so long-running steps can be
