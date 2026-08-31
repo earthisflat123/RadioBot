@@ -10,21 +10,67 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-# NOTE: Do not use Start-Transcript here. The install.bat wrapper already
-# redirects all output to C:\OEM\setup.log, and using Start-Transcript on the
-# same file while cmd.exe holds it open for redirection causes a file-lock
-# error on some runs.
+# NOTE: do not write to C:\OEM\setup.log directly, as install.bat may have
+# its console output redirected there by the dockur/windows OEM hook. Use a
+# separate detailed log file that is still visible on the host because C:\OEM
+# is the mounted windows-oem/ folder.
 
-# Temp directory and log file (write here to avoid file-lock with install.bat)
+$OEM = "C:\OEM"
 $TempDir = "C:\Temp"
-$LogFile = "$TempDir\setup.log"
+$LogFile = "$OEM\setup-radiobot.log"
 New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
+New-Item -ItemType Directory -Force -Path $OEM | Out-Null
 
 function Write-Log($Message) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $line = "$ts $Message"
     Write-Output $line
     Add-Content -Path $LogFile -Value $line
+}
+
+function Find-AndMap-SharedDrive {
+    # dockur/windows exposes the host bind mount as a Samba share at
+    # \\host.lan\Data. It may also appear as C:\Users\builder\Desktop\Shared
+    # or as a drive letter Z:. Try to map Z: to the share for consistency and
+    # fall back to using the share path directly if mapping fails.
+    $candidates = @("Z:\", "C:\Users\builder\Desktop\Shared", "\\host.lan\Data")
+    $resolved = $null
+    foreach ($c in $candidates) {
+        if (Test-Path $c) {
+            $resolved = $c
+            Write-Log "Found shared source at $resolved"
+            break
+        }
+    }
+    if (-not $resolved) {
+        Write-Log "Host share not found; trying to map Z: to \\host.lan\Data..."
+        try {
+            & cmd /c "net use Z: \\host.lan\Data /y" 2>&1 | ForEach-Object { Write-Log "net use: $_" }
+            if (Test-Path "Z:\") {
+                $resolved = "Z:\"
+                Write-Log "Mapped Z: to host share successfully"
+            }
+        } catch {
+            Write-Log "Could not map Z: drive: $_"
+        }
+    }
+    return $resolved
+}
+
+# Resolve the host shared folder early. If the default Desktop/Shared path
+# does not exist (or if Z: is not mapped), find or map the dockur/windows
+# share so the rest of the script has a reliable source and target path.
+if (-not (Test-Path $RepoSrc)) {
+    $found = Find-AndMap-SharedDrive
+    if ($found) {
+        $RepoSrc = $found
+        Write-Log "Using host shared source: $RepoSrc"
+    } else {
+        throw "Could not locate the host shared folder (tried C:\Users\builder\Desktop\Shared, Z:\, and \\host.lan\Data). The build cannot continue."
+    }
+} else {
+    Write-Log "Using provided RepoSrc: $RepoSrc"
+    Find-AndMap-SharedDrive | Out-Null
 }
 
 function Invoke-WithRetry {
@@ -103,26 +149,16 @@ function Add-HostSSHPublicKey($OemDir) {
     }
 }
 
-# Archive use is strictly opt-in. Default is a fresh install from scratch.
-# Opt-in can be triggered by:
-# - Passing -UseDepsArchive to this script
-# - Setting the environment variable USE_RADIOSBOT_DEPS_ARCHIVE=1
-# - Placing a file named USE_RADIOSBOT_DEPS_ARCHIVE in C:\OEM or in the root of the shared drive (RepoSrc)
-if (-not $UseDepsArchive) {
-    if ($env:USE_RADIOSBOT_DEPS_ARCHIVE -eq '1') {
-        $UseDepsArchive = $true
-    }
-    elseif (Test-Path "C:\OEM\USE_RADIOSBOT_DEPS_ARCHIVE") {
-        $UseDepsArchive = $true
-    }
-    elseif (Test-Path "$RepoSrc\USE_RADIOSBOT_DEPS_ARCHIVE") {
-        $UseDepsArchive = $true
-    }
+# Archive use is opt-in. Default is a fresh install from scratch. Opt-in can be
+# triggered by passing -UseDepsArchive, setting USE_RADIOSBOT_DEPS_ARCHIVE=1, or
+# simply making an archive available: setup.ps1 will auto-detect it.
+if (-not $UseDepsArchive -and $env:USE_RADIOSBOT_DEPS_ARCHIVE -eq '1') {
+    $UseDepsArchive = $true
 }
 
 Write-Log "=== Starting RadioBot Windows build environment setup ==="
 if ($UseDepsArchive) {
-    Write-Log "Archive restore mode: dependencies will be extracted from radiobot-windows-deps.7z"
+    Write-Log "Archive restore requested: dependencies will be extracted from radiobot-windows-deps.7z if found"
 } else {
     Write-Log "Fresh install mode: vcpkg packages and source dependencies will be built from scratch"
 }
@@ -185,11 +221,54 @@ $deps = "C:\deps"
 
 # 4-7. vcpkg + dependencies (fresh) or restore from archive (opt-in)
 $vcpkgDir = "C:\vcpkg"
-if ($UseDepsArchive) {
-    $ArchivePath = "$RepoSrc\radiobot-windows-deps.7z"
-    if (-not (Test-Path $ArchivePath)) {
-        throw "Dependency archive not found at $ArchivePath. Remove the opt-in marker or environment variable to build from scratch."
+$LocalArchivePath = "$RepoSrc\radiobot-windows-deps.7z"
+$OEMArchivePath = "$OEM\radiobot-windows-deps.7z"
+$DownloadedArchivePath = "$TempDir\radiobot-windows-deps.7z"
+
+function Find-DependencyArchive() {
+    $ArchivePath = $null
+
+    # 1. URL in the environment / config: download once and cache in C:\Temp
+    $DepsUrl = $env:RADIOSBOT_DEPS_URL
+    if ($DepsUrl) {
+        Write-Log "Dependency archive URL configured: $DepsUrl"
+        if (Test-Path $DownloadedArchivePath) {
+            Write-Log "Using previously downloaded archive at $DownloadedArchivePath"
+            $ArchivePath = $DownloadedArchivePath
+        } else {
+            Write-Log "Downloading dependency archive..."
+            Invoke-WithRetry { Invoke-WebRequest -Uri $DepsUrl -OutFile $DownloadedArchivePath -UseBasicParsing }
+            if (Test-Path $DownloadedArchivePath) {
+                $ArchivePath = $DownloadedArchivePath
+            }
+        }
     }
+
+    # 2. Archive in the repo root / shared drive
+    if (-not $ArchivePath -and (Test-Path $LocalArchivePath)) {
+        $ArchivePath = $LocalArchivePath
+    }
+
+    # 3. Archive staged in C:\OEM
+    if (-not $ArchivePath -and (Test-Path $OEMArchivePath)) {
+        $ArchivePath = $OEMArchivePath
+    }
+
+    return $ArchivePath
+}
+
+$ArchivePath = Find-DependencyArchive
+if ($UseDepsArchive) {
+    if (-not $ArchivePath) {
+        throw "Dependency archive was requested but not found. Provide it at $LocalArchivePath, $OEMArchivePath, or set `$env:RADIOSBOT_DEPS_URL`."
+    }
+} elseif ($ArchivePath) {
+    Write-Log "Found dependency archive at $ArchivePath; using it automatically (set -UseDepsArchive explicitly to require one)."
+    $UseDepsArchive = $true
+}
+
+if ($UseDepsArchive) {
+    if (-not $ArchivePath) { throw "Dependency archive path is empty; this should not happen." }
     Write-Log "Extracting dependency archive $ArchivePath to C:\..."
     $SevenZip = "C:\Program Files\7-Zip\7z.exe"
     if (-not (Test-Path $SevenZip)) {
@@ -224,34 +303,30 @@ if ($UseDepsArchive) {
 
     # 5. vcpkg packages (x86 to match the Win32 .vcxproj files)
     $triplet = "x86-windows"
-    $packages = @(
-        "openssl",
-        "sqlite3",
-        "libmysql",
-        "zlib",
-        "curl",
-        "protobuf",
-        "taglib",
-        "libogg",
-        "libvorbis",
-        "libflac",
-        "libsndfile",
-        "mp3lame",
-        "wxwidgets",
-        "opus",
-        "soxr",
-        "faad2",
-        "physfs",
-        "pcre",
-        "mosquitto",
-        "ffmpeg",
-        "muparser",
-        "lua",
-        "glib"
-    )
 
-    Write-Log "Installing vcpkg packages for $triplet (this can take a long time)..."
-    & "$vcpkgDir\vcpkg.exe" install $packages --triplet $triplet
+    # Use a manifest with a builtin-baseline so package versions are pinned and
+    # reproducible across builds. The manifest lives in the repo source tree.
+    $manifestRoot = $RepoSrc.TrimEnd('\')
+    if (-not (Test-Path "$manifestRoot\vcpkg.json")) {
+        throw "vcpkg.json not found in the repo source at $manifestRoot. It is required for pinned package versions."
+    }
+
+    # Enable vcpkg binary caching. A local cache under the vcpkg root speeds up
+    # repeated installs in the same VM; a cache on the shared drive (Z:) survives
+    # VM recreation and is used if it is mounted.
+    $binarySources = "clear;files,$vcpkgDir\cache,readwrite"
+    if (Test-Path "Z:\") {
+        $binarySources += ";files,Z:\vcpkg-cache,readwrite"
+    }
+    $env:VCPKG_BINARY_SOURCES = $binarySources
+    Write-Log "vcpkg binary sources: $binarySources"
+
+    Write-Log "Installing vcpkg packages for $triplet from manifest (this can take a long time the first time)..."
+    # Append the full vcpkg output to the log so slow build failures can be
+    # diagnosed from the host. Using cmd /c with >> keeps the exit code intact.
+    $vcpkgCmd = "`"$vcpkgDir\vcpkg.exe`" install --triplet $triplet --x-manifest-root `"$manifestRoot`" --x-install-root `"$vcpkgDir\installed`" >> `"$LogFile`" 2>&1"
+    $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $vcpkgCmd -Wait -PassThru -NoNewWindow
+    if ($proc.ExitCode -ne 0) { throw "vcpkg install failed with exit code $($proc.ExitCode)" }
     Write-Log "vcpkg install finished."
 
     # 6. Stage vcpkg outputs into C:\deps
@@ -309,7 +384,7 @@ if (Test-Path $RepoSrc) {
     Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
     New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
     & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
-        /XD "windows-storage" "windows-oem" ".git" `
+        /XD "windows-storage" "windows-oem" ".git" "vcpkg-cache" "artifacts" ".worktree" `
         /Z /MT:4 /R:3 /W:5 /NDL /NFL
     Write-Log "Source copied."
 
@@ -329,10 +404,16 @@ if (Test-Path $RepoSrc) {
 Write-Log "=== Setup complete ==="
 Write-Log "Connect via:  ssh -p 2222 builder@localhost   (RDP: localhost:3389, web VNC: http://localhost:8006)"
 
-# Copy the log to the shared drive so the host can see progress
-$sharedLog = "$RepoSrc\windows-setup.log"
+# Copy the log to the shared drive so the host can see progress. C:\OEM is
+# already visible on the host through the windows-oem/ mount, but copying to
+# the share root makes it easy to find.
 try {
-    Copy-Item $LogFile $sharedLog -Force -ErrorAction SilentlyContinue
+    if (Test-Path $RepoSrc) {
+        Copy-Item $LogFile "$RepoSrc\windows-setup.log" -Force -ErrorAction SilentlyContinue
+    }
+    if ((Test-Path "Z:\") -and ($RepoSrc -ne "Z:\")) {
+        Copy-Item $LogFile "Z:\windows-setup.log" -Force -ErrorAction SilentlyContinue
+    }
 } catch {
     Write-Log "Could not copy setup log to shared drive: $_"
 }

@@ -55,7 +55,11 @@ docker-compose.override.yml
 # Headless Windows build artifacts
 windows-storage/
 artifacts/
+vcpkg-cache/
 windows-oem/id_rsa*
+
+# Git worktree used for clean build testing
+.worktree/
 
 # Debian package build output
 *.deb
