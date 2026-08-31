@@ -53,8 +53,6 @@ Write-Log "Creating dependency archive at $archive ..."
     "-xr!vcpkg\packages" `
     "-xr!vcpkg\downloads" `
     "-xr!vcpkg\cache" `
-    "-xr!vcpkg\ports" `
-    "-xr!vcpkg\versions" `
     "-xr!vcpkg\installed\*\debug" `
     $archive C:\vcpkg C:\deps
 

@@ -21,6 +21,7 @@
     "faad2",
     "physfs",
     "pcre",
+    "libevent",
     "mosquitto",
     "ffmpeg",
     "muparser",
