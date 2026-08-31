@@ -14,8 +14,11 @@ param(
     with the official extra files from the original installer payload, then builds
     an NSIS installer named C:\RadioBot\RadioBot-setup.exe.
 
-    The original installer is expected at C:\RadioBot\official-installer.exe.
-    If it is missing, the script tries to download it from the URL in $OfficialUrl.
+    The original installer is loaded in this order:
+      1. Z:\official-installer.exe     (host-provided file in the shared folder)
+      2. C:\RadioBot\official-installer.exe (already in the VM)
+      3. $env:RADIOSBOT_OFFICIAL_INSTALLER_URL (host-configured URL)
+      4. $OfficialUrl                    (default upstream URL)
 
     The NSIS source script is in the same C:\OEM directory (copied from
     windows-oem/RadioBot.nsi) and uses /D command-line defines for the payload
@@ -28,6 +31,7 @@ $RepoDir      = "C:\RadioBot"
 $OutputDir    = "$RepoDir\v5\Output"
 $PayloadDir   = "$RepoDir\payload-official"
 $InstallerSrc = "$RepoDir\official-installer.exe"
+$SharedSrc    = "Z:\official-installer.exe"
 $OEMDir       = "C:\OEM"
 $NsisFile     = "$OEMDir\RadioBot.nsi"
 $SevenZip     = "C:\Program Files\7-Zip\7z.exe"
@@ -48,23 +52,45 @@ if (-not (Test-Path $MakeNsis)) {
 }
 
 # 2. Ensure we have the official installer payload.
-if (-not (Test-Path $PayloadDir)) {
-    if (-not (Test-Path $InstallerSrc)) {
-        Write-Log "Official installer not found at $InstallerSrc, downloading..."
-        Invoke-WebRequest -Uri $OfficialUrl -OutFile $InstallerSrc -UserAgent "Mozilla/5.0"
-    }
-    Write-Log "Extracting official installer to $PayloadDir..."
-    New-Item -ItemType Directory -Force -Path $PayloadDir | Out-Null
-    & $SevenZip x $InstallerSrc -o"$PayloadDir" -y
-    if ($LASTEXITCODE -ne 0) { throw "Failed to extract official installer" }
-    $extracted = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
-    Write-Log "Extracted $extracted files to payload directory."
-    # The 7-Zip extraction also creates a $PLUGINSDIR folder from the installer's
-    # temp plugin files. It must not be installed to the target directory.
-    Remove-Item -LiteralPath "$PayloadDir\`$PLUGINSDIR" -Recurse -Force -ErrorAction SilentlyContinue
-    $afterRemove = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
-    Write-Log "After removing `$PLUGINSDIR: $afterRemove files."
+# Prefer a host-provided installer, then a local one, then a configured URL,
+# then the default upstream URL.
+$needDownload = $true
+if (Test-Path $SharedSrc) {
+    Write-Log "Using host-provided installer $SharedSrc"
+    Copy-Item $SharedSrc $InstallerSrc -Force
+    $needDownload = $false
 }
+if ($needDownload -and (Test-Path $InstallerSrc)) {
+    Write-Log "Using existing installer $InstallerSrc"
+    $needDownload = $false
+}
+if ($needDownload -and $env:RADIOSBOT_OFFICIAL_INSTALLER_URL) {
+    Write-Log "Downloading official installer from $env:RADIOSBOT_OFFICIAL_INSTALLER_URL..."
+    Invoke-WebRequest -Uri $env:RADIOSBOT_OFFICIAL_INSTALLER_URL -OutFile $InstallerSrc -UserAgent "Mozilla/5.0"
+    $needDownload = $false
+}
+if ($needDownload) {
+    Write-Log "Official installer not found at $InstallerSrc, downloading from $OfficialUrl..."
+    Invoke-WebRequest -Uri $OfficialUrl -OutFile $InstallerSrc -UserAgent "Mozilla/5.0"
+}
+
+# Always rebuild the payload from the chosen installer so language files and
+# other extras from a newer/different official installer are picked up.
+if (Test-Path $PayloadDir) {
+    Write-Log "Removing stale payload directory $PayloadDir..."
+    Remove-Item $PayloadDir -Recurse -Force
+}
+Write-Log "Extracting official installer to $PayloadDir..."
+New-Item -ItemType Directory -Force -Path $PayloadDir | Out-Null
+& $SevenZip x $InstallerSrc -o"$PayloadDir" -y
+if ($LASTEXITCODE -ne 0) { throw "Failed to extract official installer" }
+$extracted = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
+Write-Log "Extracted $extracted files to payload directory."
+# The 7-Zip extraction also creates a $PLUGINSDIR folder from the installer's
+# temp plugin files. It must not be installed to the target directory.
+Remove-Item -LiteralPath "$PayloadDir\`$PLUGINSDIR" -Recurse -Force -ErrorAction SilentlyContinue
+$afterRemove = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
+Write-Log "After removing `$PLUGINSDIR: $afterRemove files."
 
 # 3. Overlay the new build output on top of the payload. This preserves all the
 #    official extra files (langsrc, trivia, sam_scripts, DJ Package, .pal files,
