@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 
 param(
-    [string]$RepoSrc = "C:\Users\builder\Desktop\Shared",
+    [string]$RepoSrc = "",
     [string]$RepoDst = "C:\RadioBot",
     [switch]$UseDepsArchive
 )
@@ -10,16 +10,14 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-# NOTE: do not write to C:\OEM\setup.log directly, as install.bat may have
-# its console output redirected there by the dockur/windows OEM hook. Use a
-# separate detailed log file that is still visible on the host because C:\OEM
-# is the mounted windows-oem/ folder.
+# NOTE: C:\OEM is copied into the Windows install image by dockur/windows,
+# it is not a live share. Write the detailed log to the host shared drive so
+# it can be tailed from the host in real time.
 
 $OEM = "C:\OEM"
 $TempDir = "C:\Temp"
-$LogFile = "$OEM\setup-radiobot.log"
+$LogFile = "$TempDir\setup.log"
 New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
-New-Item -ItemType Directory -Force -Path $OEM | Out-Null
 
 function Write-Log($Message) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -30,48 +28,66 @@ function Write-Log($Message) {
 
 function Find-AndMap-SharedDrive {
     # dockur/windows exposes the host bind mount as a Samba share at
-    # \\host.lan\Data. It may also appear as C:\Users\builder\Desktop\Shared
-    # or as a drive letter Z:. Try to map Z: to the share for consistency and
-    # fall back to using the share path directly if mapping fails.
-    $candidates = @("Z:\", "C:\Users\builder\Desktop\Shared", "\\host.lan\Data")
-    $resolved = $null
-    foreach ($c in $candidates) {
-        if (Test-Path $c) {
-            $resolved = $c
-            Write-Log "Found shared source at $resolved"
-            break
-        }
-    }
-    if (-not $resolved) {
-        Write-Log "Host share not found; trying to map Z: to \\host.lan\Data..."
+    # \\host.lan\Data. It is sometimes exposed as C:\Users\builder\Desktop\Shared
+    # or as a drive letter Z:. We prefer Z: for consistency, but we only trust a
+    # path if it actually contains the RadioBot source (look for vcpkg.json).
+    $shareRoot = $null
+
+    # Try the network share directly first, and also map it to Z:.
+    $unc = "\\host.lan\Data"
+    if (Test-Path $unc) {
+        $shareRoot = $unc
+        Write-Log "Host share reachable at $unc"
+    } else {
+        Write-Log "Host share not reachable at $unc; trying to map Z:..."
         try {
             & cmd /c "net use Z: \\host.lan\Data /y" 2>&1 | ForEach-Object { Write-Log "net use: $_" }
             if (Test-Path "Z:\") {
-                $resolved = "Z:\"
+                $shareRoot = "Z:\"
                 Write-Log "Mapped Z: to host share successfully"
             }
         } catch {
             Write-Log "Could not map Z: drive: $_"
         }
     }
-    return $resolved
+
+    # If Z: is already mapped, use it.
+    if (-not $shareRoot -and (Test-Path "Z:\")) {
+        $shareRoot = "Z:\"
+        Write-Log "Found existing Z: drive"
+    }
+
+    # The Desktop/Shared shortcut only counts if it actually has the source.
+    $desktopShared = "C:\Users\builder\Desktop\Shared"
+    if (-not $shareRoot -and (Test-Path "$desktopShared\vcpkg.json")) {
+        $shareRoot = $desktopShared
+        Write-Log "Found shared source at $desktopShared"
+    }
+
+    return $shareRoot
 }
 
-# Resolve the host shared folder early. If the default Desktop/Shared path
-# does not exist (or if Z: is not mapped), find or map the dockur/windows
-# share so the rest of the script has a reliable source and target path.
-if (-not (Test-Path $RepoSrc)) {
+# Resolve the host shared folder early. Everything else (source copy, vcpkg
+# manifest, and the log) depends on having a working share.
+if ([string]::IsNullOrEmpty($RepoSrc) -or -not (Test-Path $RepoSrc)) {
     $found = Find-AndMap-SharedDrive
     if ($found) {
         $RepoSrc = $found
-        Write-Log "Using host shared source: $RepoSrc"
     } else {
-        throw "Could not locate the host shared folder (tried C:\Users\builder\Desktop\Shared, Z:\, and \\host.lan\Data). The build cannot continue."
+        throw "Could not locate the host shared folder. The build cannot continue."
     }
-} else {
-    Write-Log "Using provided RepoSrc: $RepoSrc"
-    Find-AndMap-SharedDrive | Out-Null
 }
+
+# Make sure the share actually contains the repo source.
+$manifestRoot = $RepoSrc.TrimEnd('\')
+if (-not (Test-Path "$manifestRoot\vcpkg.json")) {
+    throw "vcpkg.json not found in the repo source at $manifestRoot. The host share may be empty or mapped to the wrong path."
+}
+
+# Switch the log to the shared drive so it is visible on the host.
+$LogFile = "$RepoSrc\setup-radiobot.log"
+Write-Log "=== Starting RadioBot Windows build environment setup ==="
+Write-Log "Using host shared source: $RepoSrc"
 
 function Invoke-WithRetry {
     param([scriptblock]$Command, [int]$MaxAttempts = 3)
@@ -403,17 +419,3 @@ if (Test-Path $RepoSrc) {
 
 Write-Log "=== Setup complete ==="
 Write-Log "Connect via:  ssh -p 2222 builder@localhost   (RDP: localhost:3389, web VNC: http://localhost:8006)"
-
-# Copy the log to the shared drive so the host can see progress. C:\OEM is
-# already visible on the host through the windows-oem/ mount, but copying to
-# the share root makes it easy to find.
-try {
-    if (Test-Path $RepoSrc) {
-        Copy-Item $LogFile "$RepoSrc\windows-setup.log" -Force -ErrorAction SilentlyContinue
-    }
-    if ((Test-Path "Z:\") -and ($RepoSrc -ne "Z:\")) {
-        Copy-Item $LogFile "Z:\windows-setup.log" -Force -ErrorAction SilentlyContinue
-    }
-} catch {
-    Write-Log "Could not copy setup log to shared drive: $_"
-}
