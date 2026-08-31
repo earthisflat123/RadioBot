@@ -33,16 +33,25 @@ function Find-AndMap-SharedDrive {
     # path if it actually contains the RadioBot source (look for vcpkg.json).
     $shareRoot = $null
 
-    # Try the network share directly first, and also map it to Z:.
-    $unc = "\\host.lan\Data"
-    if (Test-Path $unc) {
-        $shareRoot = $unc
-        Write-Log "Host share reachable at $unc"
-    } else {
-        Write-Log "Host share not reachable at $unc; trying to map Z:..."
+    # Try the Desktop/Shared shortcut first if it has the source.
+    $desktopShared = "C:\Users\builder\Desktop\Shared"
+    if (Test-Path "$desktopShared\vcpkg.json") {
+        $shareRoot = $desktopShared
+        Write-Log "Found shared source at $desktopShared"
+    }
+
+    # If Z: is already mapped and has the source, use it.
+    if (-not $shareRoot -and (Test-Path "Z:\vcpkg.json")) {
+        $shareRoot = "Z:\"
+        Write-Log "Found shared source at Z:\"
+    }
+
+    # Map \\host.lan\Data to Z: and verify it has the source.
+    if (-not $shareRoot) {
+        Write-Log "Trying to map Z: to \\host.lan\Data..."
         try {
             & cmd /c "net use Z: \\host.lan\Data /y" 2>&1 | ForEach-Object { Write-Log "net use: $_" }
-            if (Test-Path "Z:\") {
+            if (Test-Path "Z:\vcpkg.json") {
                 $shareRoot = "Z:\"
                 Write-Log "Mapped Z: to host share successfully"
             }
@@ -51,17 +60,11 @@ function Find-AndMap-SharedDrive {
         }
     }
 
-    # If Z: is already mapped, use it.
-    if (-not $shareRoot -and (Test-Path "Z:\")) {
-        $shareRoot = "Z:\"
-        Write-Log "Found existing Z: drive"
-    }
-
-    # The Desktop/Shared shortcut only counts if it actually has the source.
-    $desktopShared = "C:\Users\builder\Desktop\Shared"
-    if (-not $shareRoot -and (Test-Path "$desktopShared\vcpkg.json")) {
-        $shareRoot = $desktopShared
-        Write-Log "Found shared source at $desktopShared"
+    # Last resort: use the UNC path directly if it has the source.
+    $unc = "\\host.lan\Data"
+    if (-not $shareRoot -and (Test-Path "$unc\vcpkg.json")) {
+        $shareRoot = $unc
+        Write-Log "Found shared source at $unc"
     }
 
     return $shareRoot
