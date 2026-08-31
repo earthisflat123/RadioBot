@@ -72,6 +72,10 @@ Section "RadioBot" sec_main
   File /r "${PAYLOADDIR}\*"
   SetDetailsPrint both
 
+  ; The original installer creates an empty el_GR language folder as a
+  ; placeholder. Match that behavior so the installed tree looks identical.
+  CreateDirectory "$INSTDIR\langsrc\el_GR"
+
   ; Optional: run the ConfigWizard GUI to create or import ircbot.conf.
   ; Silent installs skip this; the wizard is installed as ConfigWizard.exe.
   IfSilent skip_wizard
