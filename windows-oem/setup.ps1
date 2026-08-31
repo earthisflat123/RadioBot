@@ -76,15 +76,6 @@ function Find-AndMap-SharedDrive {
     return $shareRoot
 }
 
-# Enable headless access as early as possible so long-running installs can be
-# inspected/debugged from the host without waiting for setup to finish.
-Write-Log "=== Starting RadioBot Windows build environment setup ==="
-Write-Log "Enabling OpenSSH early..."
-Install-OpenSSHServer
-Add-HostSSHPublicKey -OemDir "C:\OEM"
-Write-Log "OpenSSH ready. The host can tail this log with:"
-Write-Log "  ssh -p 2222 -i ~/.ssh/radiobot_windows_builder builder@localhost powershell -Command 'Get-Content -Wait C:\Temp\setup-radiobot.log'"
-
 # Resolve the host shared folder early. Everything else (source copy, vcpkg
 # manifest, and the log) depends on having a working share.
 if ([string]::IsNullOrEmpty($RepoSrc) -or -not (Test-Path $RepoSrc)) {
@@ -100,6 +91,15 @@ if ([string]::IsNullOrEmpty($RepoSrc) -or -not (Test-Path $RepoSrc)) {
 $manifestRoot = $RepoSrc.TrimEnd('\')
 
 Write-Log "Using host shared source: $RepoSrc"
+
+# Enable headless access as early as possible so long-running installs can be
+# inspected/debugged from the host without waiting for setup to finish.
+Write-Log "=== Starting RadioBot Windows build environment setup ==="
+Write-Log "Enabling OpenSSH early..."
+Install-OpenSSHServer
+Add-HostSSHPublicKey -OemDir "C:\OEM"
+Write-Log "OpenSSH ready. The host can tail this log with:"
+Write-Log "  ssh -p 2222 -i ~/.ssh/radiobot_windows_builder builder@localhost powershell -Command 'Get-Content -Wait C:\Temp\setup-radiobot.log'"
 
 function Invoke-WithRetry {
     param([scriptblock]$Command, [int]$MaxAttempts = 3)
