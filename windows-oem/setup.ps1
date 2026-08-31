@@ -390,8 +390,10 @@ if ($UseDepsArchive) {
 
     # 6a. Free disk space by removing vcpkg intermediate build artifacts. The
     # installed tree under C:\vcpkg\installed and the binary cache are kept.
+    # We preserve downloads\tools so vcpkg does not have to re-download
+    # cmake/ninja/msys2 on the next run.
     Write-Log "Cleaning up vcpkg intermediate build artifacts to free disk space..."
-    @("$vcpkgDir\buildtrees", "$vcpkgDir\downloads", "$vcpkgDir\packages") | ForEach-Object {
+    @("$vcpkgDir\buildtrees", "$vcpkgDir\packages") | ForEach-Object {
         if (Test-Path $_) {
             try {
                 Remove-Item $_ -Recurse -Force -ErrorAction SilentlyContinue
