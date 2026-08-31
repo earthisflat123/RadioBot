@@ -358,11 +358,10 @@ if ($UseDepsArchive) {
     Write-Log "vcpkg binary sources: $binarySources"
 
     Write-Log "Installing vcpkg packages for $triplet from manifest (this can take a long time the first time)..."
-    # Append the full vcpkg output to the log so slow build failures can be
-    # diagnosed from the host. Using cmd /c with >> keeps the exit code intact.
-    $vcpkgCmd = "`"$vcpkgDir\vcpkg.exe`" install --triplet $triplet --x-manifest-root `"$manifestRoot`" --x-install-root `"$vcpkgDir\installed`" >> `"$LogFile`" 2>&1"
-    $proc = Start-Process -FilePath "cmd.exe" -ArgumentList "/c", $vcpkgCmd -Wait -PassThru -NoNewWindow
-    if ($proc.ExitCode -ne 0) { throw "vcpkg install failed with exit code $($proc.ExitCode)" }
+    # Run vcpkg directly in PowerShell and append its output to the log. This
+    # avoids cmd.exe quoting issues with the manifest root and the >> redirect.
+    & "$vcpkgDir\vcpkg.exe" install --triplet $triplet --x-manifest-root $manifestRoot --x-install-root "$vcpkgDir\installed" 2>&1 | Out-File -Append -FilePath $LogFile
+    if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed with exit code $LASTEXITCODE" }
     Write-Log "vcpkg install finished."
 
     # 6. Stage vcpkg outputs into C:\deps
