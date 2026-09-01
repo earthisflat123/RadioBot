@@ -72,6 +72,16 @@ The setup script (`windows-oem/setup.ps1`) installs:
 
 This can take 30–60 minutes on the first run.
 
+### Reusing a pre-downloaded Windows ISO
+
+To avoid re-downloading the Windows Server 2022 ISO every time you recreate the VM, keep a local copy of the source ISO in `windows-storage/`.
+
+- The ISO filename must match the `VERSION` in `docker-compose.windows.yml`. For `VERSION: "2022"`, name it `windows-storage/win2022-eval.iso`.
+- The first time `dockurr/windows` processes it, it adds drivers, the `windows-oem/` files, and an unattended answer file. The processed ISO is left in `windows-storage/win2022-eval.iso` and a `windows.base` metadata file is created next to it.
+- Keeping both `win2022-eval.iso` and `windows.base` lets `dockurr/windows` skip the download and processing on future fresh installs.
+- Do **not** reuse the processed image (`windows.5044094976.iso`, first byte `0x16`) as a source. `dockurr/windows` will try to process it again and the installer can hang.
+- Always run `./prepare-windows-build.sh` *before* the first `docker compose up` when creating a fresh worktree or clone. It generates `windows-oem/id_rsa.pub`, which is baked into the Windows install image so the host can SSH in.
+
 ### 3. Build RadioBot
 
 Once setup is complete:
@@ -108,40 +118,24 @@ Plugins are in `./artifacts/plugins/` and `./artifacts/Plugins/AutoDJ/`.
 
 If you need to recreate the Windows build VM from scratch, installing vcpkg packages and building the source dependencies (`libfaac`, `libspopc`, DSL, etc.) is the slow part. You can optionally use a pre-packaged dependency archive to restore the long-build pieces quickly.
 
-The archive is **not tracked in Git** because it is large (≈ 625 MB). If you have a copy, place it in the repo root (which appears as `Z:\` inside the VM) or in `C:\OEM`:
+The archive is **not tracked in Git** because it is large (≈ 625 MB). You can generate one yourself after a successful setup using `windows-oem/package-deps.ps1` inside the VM. It creates `radiobot-windows-deps.7z` in `Z:\` (or `C:\OEM` if `Z:` is not mapped).
 
-- `radiobot-windows-deps.7z` (≈ 625 MB)
-
-It should contain everything vcpkg and the build scripts expect at their normal paths:
+The archive should contain:
 
 - `deps/` → `C:\deps`
 - `vcpkg/` → `C:\vcpkg` (vcpkg tool + `installed/`, but without `buildtrees/`, `downloads/`, or `packages/`)
 - `libspopc-src/` → `C:\libspopc-src`
 
-To restore the dependencies:
+To restore the dependencies on a fresh VM:
 
 1. Make sure the new VM has the `windows-oem/` folder mounted as `C:\OEM` and the RadioBot source available at `C:\RadioBot` (or `Z:\`).
-2. Copy the archive into the VM (for example to `C:\Temp` or `Z:\`).
-3. In the VM, extract it to the root of `C:\`:
+2. Provide the archive in one of these ways:
+   - Place `radiobot-windows-deps.7z` in the repo root (which appears as `Z:\` inside the VM).
+   - Copy it into the mounted `windows-oem/` folder so it appears as `C:\OEM\radiobot-windows-deps.7z`.
+   - Set `RADIOSBOT_DEPS_URL` in the environment to a private HTTPS URL where the archive is hosted; `setup.ps1` will download it once and cache it in `C:\Temp`.
+3. The archive is used automatically if `USE_RADIOSBOT_DEPS_ARCHIVE=1` or the marker file `USE_RADIOSBOT_DEPS_ARCHIVE` is present. If `setup.ps1` finds the archive (or the URL is configured) and the marker is **not** set, it will still use the archive and log that it did so.
 
-   ```powershell
-   7z x radiobot-windows-deps.7z -oC:\
-   ```
-
-4. Verify the top-level directories were created:
-
-   ```powershell
-   Test-Path C:\deps\lib\libfaac.lib
-   Test-Path C:\vcpkg\installed\x86-windows\lib
-   Test-Path C:\libspopc-src
-   ```
-
-Archive use is opt-in. The default `windows-oem/setup.ps1` behaviour is still to install/build everything from scratch. To enable the archive, either:
-
-- Create an empty file named `USE_RADIOSBOT_DEPS_ARCHIVE` in the repo root (which is `Z:\` in the VM), or
-- Set the environment variable `USE_RADIOSBOT_DEPS_ARCHIVE=1` before the VM starts.
-
-After extraction, `./build-windows.sh` can run without waiting for vcpkg or libfaac/libspopc to build. The source dependencies (`driftmeshcore` for `MeshCore`) are still cloned from the network on first build unless they are also present in `C:\RadioBot\v5\Plugins\MeshCore\driftmeshcore`.
+Archive use is opt-in by default. If you do not provide one, `setup.ps1` installs and builds everything from scratch. After extraction, `./build-windows.sh` can run without waiting for vcpkg or libfaac/libspopc to build. The `driftmeshcore` dependency for `MeshCore` is still cloned from the network on first build unless it is also present in `C:\RadioBot\v5\Plugins\MeshCore\driftmeshcore`.
 
 ## Build coverage
 

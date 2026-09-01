@@ -2,6 +2,7 @@ SetCompressor /SOLID lzma
 Unicode True
 CRCCheck on
 RequestExecutionLevel admin
+ShowInstDetails show
 
 !ifndef PAYLOADDIR
   !define PAYLOADDIR "C:\RadioBot\payload-official"
@@ -32,7 +33,10 @@ Var hConfigWizard
 !insertmacro MUI_PAGE_DIRECTORY
 Page custom ConfigPage ConfigPageLeave
 !insertmacro MUI_PAGE_INSTFILES
-!insertmacro MUI_PAGE_FINISH
+
+; No MUI_PAGE_FINISH on purpose: we want the installer to stay on the
+; InstFiles page with the details log visible and a Close button, just like the
+; original official installer.
 
 !insertmacro MUI_UNPAGE_CONFIRM
 !insertmacro MUI_UNPAGE_INSTFILES
@@ -64,9 +68,17 @@ FunctionEnd
 
 Section "RadioBot" sec_main
   SetOutPath "$INSTDIR"
-  SetDetailsPrint none
+  SetDetailsPrint both
   File /r "${PAYLOADDIR}\*"
   SetDetailsPrint both
+
+  ; The original installer creates an empty el_GR language folder as a
+  ; placeholder and shows it in the details log. Match that behavior.
+  DetailPrint "Installing language files..."
+  SetOutPath "$INSTDIR\langsrc"
+  SetOutPath "$INSTDIR\langsrc\el_GR"
+  SetOutPath "$INSTDIR\langsrc\en_US"
+  SetOutPath "$INSTDIR"
 
   ; Optional: run the ConfigWizard GUI to create or import ircbot.conf.
   ; Silent installs skip this; the wizard is installed as ConfigWizard.exe.

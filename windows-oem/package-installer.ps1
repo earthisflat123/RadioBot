@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$OutFile = "C:\RadioBot\artifacts\RadioBot-setup.exe"
+    [string]$OutFile = ""
 )
 
 #Requires -Version 5.1
@@ -14,8 +14,15 @@ param(
     with the official extra files from the original installer payload, then builds
     an NSIS installer named C:\RadioBot\RadioBot-setup.exe.
 
-    The original installer is expected at C:\RadioBot\official-installer.exe.
-    If it is missing, the script tries to download it from the URL in $OfficialUrl.
+    The original installer is loaded in this order:
+      1. Z:\official-installer.exe     (host-provided or previously cached file)
+      2. C:\RadioBot\official-installer.exe (already in the VM)
+      3. $env:RADIOSBOT_OFFICIAL_INSTALLER_URL (host-configured URL)
+      4. $OfficialUrl                    (default upstream URL)
+
+    When a host shared drive (Z:) is reachable, both the downloaded original
+    installer and the final RadioBot-setup.exe are cached there so they survive
+    VM recreation. A local copy is always kept for immediate use.
 
     The NSIS source script is in the same C:\OEM directory (copied from
     windows-oem/RadioBot.nsi) and uses /D command-line defines for the payload
@@ -27,7 +34,7 @@ $ErrorActionPreference = "Stop"
 $RepoDir      = "C:\RadioBot"
 $OutputDir    = "$RepoDir\v5\Output"
 $PayloadDir   = "$RepoDir\payload-official"
-$InstallerSrc = "$RepoDir\official-installer.exe"
+$LocalInstall = "$RepoDir\official-installer.exe"
 $OEMDir       = "C:\OEM"
 $NsisFile     = "$OEMDir\RadioBot.nsi"
 $SevenZip     = "C:\Program Files\7-Zip\7z.exe"
@@ -39,7 +46,27 @@ function Write-Log($msg) {
     Write-Host "$ts $msg"
 }
 
-# 1. Ensure NSIS is installed.
+# 1. Map the host shared drive to Z: if it is not already available, so we can
+#    cache the original installer and the final setup on the host.
+if (-not (Test-Path "Z:\")) {
+    try {
+        & cmd /c "net use Z: \\host.lan\Data /y" 2>&1 | Out-Null
+    } catch {
+        Write-Warning "Could not map Z: drive: $_"
+    }
+}
+$HostRoot = if (Test-Path "Z:\") { "Z:" } else { $null }
+$HostInstall = if ($HostRoot) { "$HostRoot\official-installer.exe" } else { $null }
+$HostArtifacts = if ($HostRoot) { "$HostRoot\artifacts" } else { $null }
+$FallbackArtifacts = "$RepoDir\artifacts"
+
+# 2. Determine the installer output path. Prefer the host shared drive, but
+#    always write a local copy as well.
+if ([string]::IsNullOrWhiteSpace($OutFile)) {
+    $OutFile = "$FallbackArtifacts\RadioBot-setup.exe"
+}
+
+# 3. Ensure NSIS is installed.
 if (-not (Test-Path $MakeNsis)) {
     Write-Log "NSIS not found, installing via Chocolatey..."
     $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
@@ -47,24 +74,60 @@ if (-not (Test-Path $MakeNsis)) {
     if ($LASTEXITCODE -ne 0) { throw "Failed to install NSIS" }
 }
 
-# 2. Ensure we have the official installer payload.
-if (-not (Test-Path $PayloadDir)) {
-    if (-not (Test-Path $InstallerSrc)) {
-        Write-Log "Official installer not found at $InstallerSrc, downloading..."
-        Invoke-WebRequest -Uri $OfficialUrl -OutFile $InstallerSrc -UserAgent "Mozilla/5.0"
-    }
-    Write-Log "Extracting official installer to $PayloadDir..."
-    New-Item -ItemType Directory -Force -Path $PayloadDir | Out-Null
-    & $SevenZip x $InstallerSrc -o"$PayloadDir" -y
-    if ($LASTEXITCODE -ne 0) { throw "Failed to extract official installer" }
-    $extracted = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
-    Write-Log "Extracted $extracted files to payload directory."
-    # The 7-Zip extraction also creates a $PLUGINSDIR folder from the installer's
-    # temp plugin files. It must not be installed to the target directory.
-    Remove-Item -LiteralPath "$PayloadDir\`$PLUGINSDIR" -Recurse -Force -ErrorAction SilentlyContinue
-    $afterRemove = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
-    Write-Log "After removing `$PLUGINSDIR: $afterRemove files."
+# 4. Ensure we have the official installer payload.
+# Prefer a cached copy on the host shared drive, then a local one, then a
+# configured URL, then the default upstream URL.
+$needDownload = $true
+$InstallerSrc = $LocalInstall
+if ($HostInstall -and (Test-Path $HostInstall)) {
+    Write-Log "Using host-cached installer $HostInstall"
+    Copy-Item $HostInstall $InstallerSrc -Force
+    $needDownload = $false
 }
+if ($needDownload -and (Test-Path $InstallerSrc)) {
+    Write-Log "Using existing local installer $InstallerSrc"
+    $needDownload = $false
+}
+if ($needDownload -and $env:RADIOSBOT_OFFICIAL_INSTALLER_URL) {
+    Write-Log "Downloading official installer from $env:RADIOSBOT_OFFICIAL_INSTALLER_URL..."
+    $downloadTarget = if ($HostInstall) { $HostInstall } else { $InstallerSrc }
+    Invoke-WebRequest -Uri $env:RADIOSBOT_OFFICIAL_INSTALLER_URL -OutFile $downloadTarget -UserAgent "Mozilla/5.0"
+    if ($HostInstall -and (Test-Path $HostInstall) -and ($downloadTarget -ne $InstallerSrc)) {
+        Copy-Item $HostInstall $InstallerSrc -Force
+    }
+    $needDownload = $false
+}
+if ($needDownload) {
+    Write-Log "Official installer not found, downloading from $OfficialUrl..."
+    $downloadTarget = if ($HostInstall) { $HostInstall } else { $InstallerSrc }
+    Invoke-WebRequest -Uri $OfficialUrl -OutFile $downloadTarget -UserAgent "Mozilla/5.0"
+    if ($HostInstall -and (Test-Path $HostInstall) -and ($downloadTarget -ne $InstallerSrc)) {
+        Copy-Item $HostInstall $InstallerSrc -Force
+    }
+}
+
+# If the cache exists but the local copy is missing, copy it locally.
+if ($HostInstall -and (Test-Path $HostInstall) -and -not (Test-Path $InstallerSrc)) {
+    Copy-Item $HostInstall $InstallerSrc -Force
+}
+
+# Always rebuild the payload from the chosen installer so language files and
+# other extras from a newer/different official installer are picked up.
+if (Test-Path $PayloadDir) {
+    Write-Log "Removing stale payload directory $PayloadDir..."
+    Remove-Item $PayloadDir -Recurse -Force
+}
+Write-Log "Extracting official installer to $PayloadDir..."
+New-Item -ItemType Directory -Force -Path $PayloadDir | Out-Null
+& $SevenZip x $InstallerSrc -o"$PayloadDir" -y
+if ($LASTEXITCODE -ne 0) { throw "Failed to extract official installer" }
+$extracted = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
+Write-Log "Extracted $extracted files to payload directory."
+# The 7-Zip extraction also creates a $PLUGINSDIR folder from the installer's
+# temp plugin files. It must not be installed to the target directory.
+Remove-Item -LiteralPath "$PayloadDir\`$PLUGINSDIR" -Recurse -Force -ErrorAction SilentlyContinue
+$afterRemove = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
+Write-Log "After removing `$PLUGINSDIR: $afterRemove files."
 
 # 3. Overlay the new build output on top of the payload. This preserves all the
 #    official extra files (langsrc, trivia, sam_scripts, DJ Package, .pal files,
@@ -77,21 +140,20 @@ $afterOverlay = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Coun
 Write-Log "Payload contains $afterOverlay files after overlay."
 if ($LASTEXITCODE -ge 8) { throw "robocopy overlay failed" }
 
-# 3b. Remove stale/duplicate binaries left over from the official installer that
-#     conflict with the current build's shared dependencies.
-$PruneFiles = @(
-    "avcodec-60.dll", "avdevice-60.dll", "avfilter-9.dll", "avformat-60.dll",
-    "avutil-58.dll", "swresample-4.dll", "swscale-7.dll",
-    "client.exe", "ffmpeg.exe", "ffprobe.exe", "lame.exe",
-    "libfaac.dll", "libmariadb.dll", "libsndfile-1.dll",
-    "libssl-3-x64.dll", "lua53.dll", "taglib.dll"
-)
-foreach ($f in $PruneFiles) {
-    $p = Join-Path $PayloadDir $f
-    if (Test-Path $p) { Remove-Item $p -Force; Write-Log "Pruned $f" }
-}
+# 3b. Remove only the temporary NSIS plugin directory that 7-Zip extracts from
+#     the official installer. All official extra files (DJ Package, language
+#     data, trivia, sam_scripts, legacy tools, etc.) are preserved. The new
+#     build output was already overlaid on top, so any files with the same
+#     name now contain the freshly built version.
 $djPackage = Join-Path $PayloadDir "DJ Package"
-if (Test-Path $djPackage) { Remove-Item $djPackage -Recurse -Force; Write-Log "Pruned DJ Package" }
+if (Test-Path $djPackage) {
+    # Remove any old MusicScanner binaries inside the DJ Package that would
+    # otherwise be mistaken for the current build's main MusicScanner.exe.
+    @("MusicScanner.exe", "MusicScanner2.exe") | ForEach-Object {
+        $p = Join-Path $djPackage $_
+        if (Test-Path $p) { Remove-Item $p -Force; Write-Log "Pruned DJ Package\$_" }
+    }
+}
 
 # 4. Ensure the runtime config/language files are at the payload root.
 $IrcbotText = "$RepoDir\ircbot.text"
@@ -122,6 +184,21 @@ if (Test-Path $OutFile) {
     Write-Log "Installer built: $OutFile"
     $size = (Get-Item $OutFile).Length / 1MB
     Write-Log "Size: $size MB"
+
+    # Cache the final installer on the host shared drive if available.
+    if ($HostArtifacts) {
+        New-Item -ItemType Directory -Force -Path $HostArtifacts | Out-Null
+        $hostOut = "$HostArtifacts\$(Split-Path -Leaf $OutFile)"
+        Copy-Item $OutFile $hostOut -Force
+        Write-Log "Cached installer on host shared drive: $hostOut"
+    }
 } else {
     throw "Installer output not found"
+}
+
+# Cache the original installer on the host shared drive if available and not
+# already there, so it survives VM recreation.
+if ($HostInstall -and (Test-Path $InstallerSrc) -and (-not (Test-Path $HostInstall) -or (Get-Item $HostInstall).Length -ne (Get-Item $InstallerSrc).Length)) {
+    Copy-Item $InstallerSrc $HostInstall -Force
+    Write-Log "Cached official installer on host shared drive: $HostInstall"
 }

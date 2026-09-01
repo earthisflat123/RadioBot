@@ -30,7 +30,7 @@ scp -P "$SSH_PORT" \
     -o UserKnownHostsFile=/dev/null \
     -o IdentitiesOnly=yes \
     -i "$IDENTITY" \
-    "${SSH_USER}@${SSH_HOST}:C:/RadioBot/RadioBot-setup.exe" "artifacts/RadioBot-setup.exe"
+    "${SSH_USER}@${SSH_HOST}:C:/RadioBot/artifacts/RadioBot-setup.exe" "artifacts/RadioBot-setup.exe"
 
 echo ""
 echo "Installer package is ready: artifacts/RadioBot-setup.exe"

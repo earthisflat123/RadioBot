@@ -1,7 +1,7 @@
 #Requires -RunAsAdministrator
 
 param(
-    [string]$RepoSrc = "C:\Users\builder\Desktop\Shared",
+    [string]$RepoSrc = "",
     [string]$RepoDst = "C:\RadioBot",
     [switch]$UseDepsArchive
 )
@@ -10,35 +10,22 @@ $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-# NOTE: Do not use Start-Transcript here. The install.bat wrapper already
-# redirects all output to C:\OEM\setup.log, and using Start-Transcript on the
-# same file while cmd.exe holds it open for redirection causes a file-lock
-# error on some runs.
+# NOTE: C:\OEM is copied into the Windows install image by dockur/windows,
+# it is not a live share. Writing to the Samba share from an elevated
+# PowerShell session is unreliable because mapped drives are scoped to the
+# logon token. We keep the detailed log locally and the host can SSH in and
+# tail it, avoiding all Z: mapping issues.
 
-# Temp directory and log file (write here to avoid file-lock with install.bat)
+$OEM = "C:\OEM"
 $TempDir = "C:\Temp"
-$LogFile = "$TempDir\setup.log"
+$LogFile = "$TempDir\setup-radiobot.log"
 New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
 
 function Write-Log($Message) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     $line = "$ts $Message"
-    Write-Output $line
-    Add-Content -Path $LogFile -Value $line
-}
-
-function Invoke-WithRetry {
-    param([scriptblock]$Command, [int]$MaxAttempts = 3)
-    for ($i = 1; $i -le $MaxAttempts; $i++) {
-        try {
-            & $Command
-            return
-        } catch {
-            Write-Log "Attempt $i failed: $_"
-            if ($i -eq $MaxAttempts) { throw }
-            Start-Sleep -Seconds 10
-        }
-    }
+    Write-Host $line
+    [System.IO.File]::AppendAllText($LogFile, "$line`r`n")
 }
 
 function Install-OpenSSHServer() {
@@ -103,35 +90,105 @@ function Add-HostSSHPublicKey($OemDir) {
     }
 }
 
-# Archive use is strictly opt-in. Default is a fresh install from scratch.
-# Opt-in can be triggered by:
-# - Passing -UseDepsArchive to this script
-# - Setting the environment variable USE_RADIOSBOT_DEPS_ARCHIVE=1
-# - Placing a file named USE_RADIOSBOT_DEPS_ARCHIVE in C:\OEM or in the root of the shared drive (RepoSrc)
-if (-not $UseDepsArchive) {
-    if ($env:USE_RADIOSBOT_DEPS_ARCHIVE -eq '1') {
-        $UseDepsArchive = $true
+function Find-AndMap-SharedDrive {
+    # dockur/windows exposes the host bind mount as a Samba share at
+    # \\host.lan\Data. It is sometimes exposed as C:\Users\builder\Desktop\Shared
+    # or as a drive letter Z:. We prefer Z: for consistency. Network shares can
+    # be flaky with Test-Path, so we validate by looking for vcpkg.json.
+    $shareRoot = $null
+
+    # If Z: is already mapped and has the source, use it.
+    if (Test-Path "Z:\vcpkg.json") {
+        $shareRoot = "Z:\"
+        Write-Log "Found shared source at Z:\"
     }
-    elseif (Test-Path "C:\OEM\USE_RADIOSBOT_DEPS_ARCHIVE") {
-        $UseDepsArchive = $true
+
+    # Map \\host.lan\Data to Z: and verify it has the source.
+    if (-not $shareRoot) {
+        Write-Log "Trying to map Z: to \\host.lan\Data..."
+        try {
+            & cmd /c "net use Z: \\host.lan\Data /y" 2>&1 | ForEach-Object { Write-Log "net use: $_" }
+            if (Test-Path "Z:\vcpkg.json") {
+                $shareRoot = "Z:\"
+                Write-Log "Mapped Z: to host share successfully"
+            }
+        } catch {
+            Write-Log "Could not map Z: drive: $_"
+        }
     }
-    elseif (Test-Path "$RepoSrc\USE_RADIOSBOT_DEPS_ARCHIVE") {
-        $UseDepsArchive = $true
+
+    # Fall back to the Desktop/Shared shortcut if it has the source.
+    if (-not $shareRoot) {
+        $desktopShared = "C:\Users\builder\Desktop\Shared"
+        if (Test-Path "$desktopShared\vcpkg.json") {
+            $shareRoot = $desktopShared
+            Write-Log "Found shared source at $desktopShared"
+        }
+    }
+
+    # Last resort: use the UNC path directly if it has the source.
+    if (-not $shareRoot) {
+        $unc = "\\host.lan\Data"
+        if (Test-Path "$unc\vcpkg.json") {
+            $shareRoot = $unc
+            Write-Log "Found shared source at $unc"
+        }
+    }
+
+    return $shareRoot
+}
+
+# Resolve the host shared folder early. Everything else (source copy, vcpkg
+# manifest, and the log) depends on having a working share.
+if ([string]::IsNullOrEmpty($RepoSrc) -or -not (Test-Path $RepoSrc)) {
+    $found = Find-AndMap-SharedDrive
+    if ($found) {
+        $RepoSrc = $found
+    } else {
+        throw "Could not locate the host shared folder. The build cannot continue."
     }
 }
 
-Write-Log "=== Starting RadioBot Windows build environment setup ==="
-if ($UseDepsArchive) {
-    Write-Log "Archive restore mode: dependencies will be extracted from radiobot-windows-deps.7z"
-} else {
-    Write-Log "Fresh install mode: vcpkg packages and source dependencies will be built from scratch"
-}
+# The shared drive detection above already verified vcpkg.json is present.
+$manifestRoot = $RepoSrc.TrimEnd('\')
+
+Write-Log "Using host shared source: $RepoSrc"
 
 # Enable headless access as early as possible so long-running installs can be
 # inspected/debugged from the host without waiting for setup to finish.
+Write-Log "=== Starting RadioBot Windows build environment setup ==="
 Write-Log "Enabling OpenSSH early..."
 Install-OpenSSHServer
 Add-HostSSHPublicKey -OemDir "C:\OEM"
+Write-Log "OpenSSH ready. The host can tail this log with:"
+Write-Log "  ssh -p 2222 -i ~/.ssh/radiobot_windows_builder builder@localhost powershell -Command 'Get-Content -Wait C:\Temp\setup-radiobot.log'"
+
+function Invoke-WithRetry {
+    param([scriptblock]$Command, [int]$MaxAttempts = 3)
+    for ($i = 1; $i -le $MaxAttempts; $i++) {
+        try {
+            & $Command
+            return
+        } catch {
+            Write-Log "Attempt $i failed: $_"
+            if ($i -eq $MaxAttempts) { throw }
+            Start-Sleep -Seconds 10
+        }
+    }
+}
+
+# Archive use is opt-in. Default is a fresh install from scratch. Opt-in can be
+# triggered by passing -UseDepsArchive, setting USE_RADIOSBOT_DEPS_ARCHIVE=1, or
+# simply making an archive available: setup.ps1 will auto-detect it.
+if (-not $UseDepsArchive -and $env:USE_RADIOSBOT_DEPS_ARCHIVE -eq '1') {
+    $UseDepsArchive = $true
+}
+
+if ($UseDepsArchive) {
+    Write-Log "Archive restore requested: dependencies will be extracted from radiobot-windows-deps.7z if found"
+} else {
+    Write-Log "Fresh install mode: vcpkg packages and source dependencies will be built from scratch"
+}
 
 # 1. Install Chocolatey if missing
 $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
@@ -185,11 +242,74 @@ $deps = "C:\deps"
 
 # 4-7. vcpkg + dependencies (fresh) or restore from archive (opt-in)
 $vcpkgDir = "C:\vcpkg"
-if ($UseDepsArchive) {
-    $ArchivePath = "$RepoSrc\radiobot-windows-deps.7z"
-    if (-not (Test-Path $ArchivePath)) {
-        throw "Dependency archive not found at $ArchivePath. Remove the opt-in marker or environment variable to build from scratch."
+$LocalArchivePath = "$RepoSrc\radiobot-windows-deps.7z"
+$OEMArchivePath = "$OEM\radiobot-windows-deps.7z"
+$DownloadedArchivePath = "$TempDir\radiobot-windows-deps.7z"
+
+function Find-DependencyArchive() {
+    $ArchivePath = $null
+
+    # 1. URL in the environment / config: download once and cache in C:\Temp
+    $DepsUrl = $env:RADIOSBOT_DEPS_URL
+    if ($DepsUrl) {
+        Write-Log "Dependency archive URL configured: $DepsUrl"
+        if (Test-Path $DownloadedArchivePath) {
+            Write-Log "Using previously downloaded archive at $DownloadedArchivePath"
+            $ArchivePath = $DownloadedArchivePath
+        } else {
+            Write-Log "Downloading dependency archive..."
+            Invoke-WithRetry { Invoke-WebRequest -Uri $DepsUrl -OutFile $DownloadedArchivePath -UseBasicParsing }
+            if (Test-Path $DownloadedArchivePath) {
+                $ArchivePath = $DownloadedArchivePath
+            }
+        }
     }
+
+    # 2. Archive in the repo root / shared drive
+    if (-not $ArchivePath -and (Test-Path $LocalArchivePath)) {
+        $ArchivePath = $LocalArchivePath
+    }
+
+    # 3. Archive staged in C:\OEM
+    if (-not $ArchivePath -and (Test-Path $OEMArchivePath)) {
+        $ArchivePath = $OEMArchivePath
+    }
+
+    return $ArchivePath
+}
+
+# Copy the RadioBot source into a local directory before running vcpkg so the
+# build does not depend on the sometimes-flaky Samba mapped drive.
+if (Test-Path $RepoSrc) {
+    Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
+    New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
+    & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
+        /XD "windows-storage" "windows-oem" ".git" "vcpkg-cache" "artifacts" ".worktree" `
+        /Z /MT:4 /R:3 /W:5 /NDL /NFL
+    Write-Log "Source copied."
+
+    # Save a pristine copy of the solution for the build script to prune.
+    $Sln = "$RepoDst\IRCBot\IRCBot.sln"
+    if (Test-Path $Sln) {
+        Copy-Item $Sln "$OEM\IRCBot.sln.orig" -Force
+        Write-Log "Saved pristine IRCBot.sln to $OEM\IRCBot.sln.orig."
+    }
+} else {
+    Write-Log "Shared source not found at $RepoSrc. You will need to copy the source manually."
+}
+
+$ArchivePath = Find-DependencyArchive
+if ($UseDepsArchive) {
+    if (-not $ArchivePath) {
+        throw "Dependency archive was requested but not found. Provide it at $LocalArchivePath, $OEMArchivePath, or set `$env:RADIOSBOT_DEPS_URL`."
+    }
+} elseif ($ArchivePath) {
+    Write-Log "Found dependency archive at $ArchivePath; using it automatically (set -UseDepsArchive explicitly to require one)."
+    $UseDepsArchive = $true
+}
+
+if ($UseDepsArchive) {
+    if (-not $ArchivePath) { throw "Dependency archive path is empty; this should not happen." }
     Write-Log "Extracting dependency archive $ArchivePath to C:\..."
     $SevenZip = "C:\Program Files\7-Zip\7z.exe"
     if (-not (Test-Path $SevenZip)) {
@@ -203,9 +323,6 @@ if ($UseDepsArchive) {
     }
     if (-not (Test-Path "C:\deps")) {
         throw "deps directory not found after archive extraction."
-    }
-    if (-not (Test-Path "C:\deps\lib\libfaac.lib")) {
-        throw "libfaac not found after archive extraction; archive may be incomplete."
     }
     if (-not (Test-Path "$vcpkgDir\installed\x86-windows")) {
         throw "vcpkg installed tree not found after archive extraction."
@@ -224,34 +341,24 @@ if ($UseDepsArchive) {
 
     # 5. vcpkg packages (x86 to match the Win32 .vcxproj files)
     $triplet = "x86-windows"
-    $packages = @(
-        "openssl",
-        "sqlite3",
-        "libmysql",
-        "zlib",
-        "curl",
-        "protobuf",
-        "taglib",
-        "libogg",
-        "libvorbis",
-        "libflac",
-        "libsndfile",
-        "mp3lame",
-        "wxwidgets",
-        "opus",
-        "soxr",
-        "faad2",
-        "physfs",
-        "pcre",
-        "mosquitto",
-        "ffmpeg",
-        "muparser",
-        "lua",
-        "glib"
-    )
 
-    Write-Log "Installing vcpkg packages for $triplet (this can take a long time)..."
-    & "$vcpkgDir\vcpkg.exe" install $packages --triplet $triplet
+    # Use the local copy for the vcpkg manifest. This avoids any issues with
+    # elevated sessions not seeing the mapped Z: drive.
+    $manifestRoot = "$RepoDst"
+    if (-not (Test-Path "$manifestRoot\vcpkg.json")) {
+        throw "vcpkg.json not found in the repo source at $manifestRoot. The robocopy may have failed."
+    }
+
+    # Enable vcpkg binary caching. Keep it local to avoid network-drive issues.
+    $binarySources = "clear;files,$vcpkgDir\cache,readwrite"
+    $env:VCPKG_BINARY_SOURCES = $binarySources
+    Write-Log "vcpkg binary sources: $binarySources"
+
+    Write-Log "Installing vcpkg packages for $triplet from manifest (this can take a long time the first time)..."
+    # Run vcpkg directly in PowerShell and append its output to the log. This
+    # avoids cmd.exe quoting issues with the manifest root and the >> redirect.
+    & "$vcpkgDir\vcpkg.exe" install --triplet $triplet --x-manifest-root $manifestRoot --x-install-root "$vcpkgDir\installed" 2>&1 | Out-File -Append -FilePath $LogFile
+    if ($LASTEXITCODE -ne 0) { throw "vcpkg install failed with exit code $LASTEXITCODE" }
     Write-Log "vcpkg install finished."
 
     # 6. Stage vcpkg outputs into C:\deps
@@ -278,6 +385,22 @@ if ($UseDepsArchive) {
         }
     }
 
+    # 6a. Free disk space by removing vcpkg intermediate build artifacts. The
+    # installed tree under C:\vcpkg\installed and the binary cache are kept.
+    # We preserve downloads\tools so vcpkg does not have to re-download
+    # cmake/ninja/msys2 on the next run.
+    Write-Log "Cleaning up vcpkg intermediate build artifacts to free disk space..."
+    @("$vcpkgDir\buildtrees", "$vcpkgDir\packages") | ForEach-Object {
+        if (Test-Path $_) {
+            try {
+                Remove-Item $_ -Recurse -Force -ErrorAction SilentlyContinue
+                Write-Log "Removed $_"
+            } catch {
+                Write-Log "Could not remove $_ : $_"
+            }
+        }
+    }
+
     # Build the Drift Standard Library (DSL) required by RadioBot
     if (Test-Path "$OEM\build-dsl.ps1") {
         Write-Log "Building DSL (Drift Standard Library)..."
@@ -287,40 +410,45 @@ if ($UseDepsArchive) {
         Write-Log "DSL build script not found at $OEM\build-dsl.ps1 - DSL will need to be built manually."
     }
 
-    # 7. Prebuilt OpenSSL (the project README recommends slproweb.com)
-    Write-Log "Installing prebuilt OpenSSL..."
-    $sslUrl = "https://slproweb.com/download/Win32OpenSSL-3_4_1.exe"
-    $sslInstaller = "$TempDir\Win32OpenSSL.exe"
-    try {
-        Invoke-WithRetry { Invoke-WebRequest -Uri $sslUrl -OutFile $sslInstaller }
-        & $sslInstaller /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /DIR="C:\deps\OpenSSL-Win32"
-        if (Test-Path "C:\deps\OpenSSL-Win32") {
-            Copy-Item -Path "C:\deps\OpenSSL-Win32\include\*" -Destination "$deps\include" -Recurse -Force -ErrorAction SilentlyContinue
-            Copy-Item -Path "C:\deps\OpenSSL-Win32\lib\*" -Destination "$deps\lib" -Recurse -Force -ErrorAction SilentlyContinue
-            Copy-Item -Path "C:\deps\OpenSSL-Win32\bin\*.dll" -Destination "$deps\bin" -Recurse -Force -ErrorAction SilentlyContinue
-        }
-    } catch {
-        Write-Log "OpenSSL install failed (will continue with vcpkg copy if present): $_"
-    }
+    # 7. OpenSSL is provided by the vcpkg manifest and staged into C:\deps
+    # above. The separate slproweb.com installer is no longer reliable (404),
+    # so we rely on the vcpkg port.
+    Write-Log "OpenSSL will be provided by vcpkg (staged to C:\deps)."
 }
 
-# 8. Copy RadioBot source from the shared folder (Z:) to C:\RadioBot
-if (Test-Path $RepoSrc) {
-    Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
-    New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
-    & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
-        /XD "windows-storage" "windows-oem" ".git" `
-        /Z /MT:4 /R:3 /W:5 /NDL /NFL
-    Write-Log "Source copied."
-
-    # Save a pristine copy of the solution for the build script to prune.
-    $Sln = "$RepoDst\IRCBot\IRCBot.sln"
-    if (Test-Path $Sln) {
-        Copy-Item $Sln "$OEM\IRCBot.sln.orig" -Force
-        Write-Log "Saved pristine IRCBot.sln to $OEM\IRCBot.sln.orig."
+# 8. Build libfaac and libspopc from source. These libraries are not in vcpkg,
+# so build them now so they are included in the dependency archive and do not
+# need to be rebuilt during every RadioBot build.
+if (Test-Path "$OEM\build-libfaac.ps1") {
+    if (-not (Test-Path "C:\deps\lib\libfaac.lib")) {
+        Write-Log "Building libfaac from source..."
+        try {
+            & "$OEM\build-libfaac.ps1"
+            Write-Log "libfaac built."
+        } catch {
+            Write-Log "libfaac build failed, the RadioBot build will retry: $_"
+        }
+    } else {
+        Write-Log "libfaac already present."
     }
 } else {
-    Write-Log "Shared source not found at $RepoSrc. You will need to copy the source manually."
+    Write-Log "libfaac build script not found at $OEM\build-libfaac.ps1 - will be built during RadioBot build."
+}
+
+if (Test-Path "$OEM\build-libspopc.ps1") {
+    if (-not (Test-Path "C:\deps\lib\libspopc.lib")) {
+        Write-Log "Building libspopc from source..."
+        try {
+            & "$OEM\build-libspopc.ps1"
+            Write-Log "libspopc built."
+        } catch {
+            Write-Log "libspopc build failed, the RadioBot build will retry: $_"
+        }
+    } else {
+        Write-Log "libspopc already present."
+    }
+} else {
+    Write-Log "libspopc build script not found at $OEM\build-libspopc.ps1 - will be built during RadioBot build."
 }
 
 # OpenSSH was enabled at the start of this script so long-running steps can be
@@ -328,11 +456,3 @@ if (Test-Path $RepoSrc) {
 
 Write-Log "=== Setup complete ==="
 Write-Log "Connect via:  ssh -p 2222 builder@localhost   (RDP: localhost:3389, web VNC: http://localhost:8006)"
-
-# Copy the log to the shared drive so the host can see progress
-$sharedLog = "$RepoSrc\windows-setup.log"
-try {
-    Copy-Item $LogFile $sharedLog -Force -ErrorAction SilentlyContinue
-} catch {
-    Write-Log "Could not copy setup log to shared drive: $_"
-}
