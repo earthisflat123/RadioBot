@@ -72,6 +72,16 @@ The setup script (`windows-oem/setup.ps1`) installs:
 
 This can take 30–60 minutes on the first run.
 
+### Reusing a pre-downloaded Windows ISO
+
+To avoid re-downloading the Windows Server 2022 ISO every time you recreate the VM, keep a local copy of the source ISO in `windows-storage/`.
+
+- The ISO filename must match the `VERSION` in `docker-compose.windows.yml`. For `VERSION: "2022"`, name it `windows-storage/win2022-eval.iso`.
+- The first time `dockurr/windows` processes it, it adds drivers, the `windows-oem/` files, and an unattended answer file. The processed ISO is left in `windows-storage/win2022-eval.iso` and a `windows.base` metadata file is created next to it.
+- Keeping both `win2022-eval.iso` and `windows.base` lets `dockurr/windows` skip the download and processing on future fresh installs.
+- Do **not** reuse the processed image (`windows.5044094976.iso`, first byte `0x16`) as a source. `dockurr/windows` will try to process it again and the installer can hang.
+- Always run `./prepare-windows-build.sh` *before* the first `docker compose up` when creating a fresh worktree or clone. It generates `windows-oem/id_rsa.pub`, which is baked into the Windows install image so the host can SSH in.
+
 ### 3. Build RadioBot
 
 Once setup is complete:
