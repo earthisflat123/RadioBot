@@ -278,6 +278,26 @@ function Find-DependencyArchive() {
     return $ArchivePath
 }
 
+# Copy the RadioBot source into a local directory before running vcpkg so the
+# build does not depend on the sometimes-flaky Samba mapped drive.
+if (Test-Path $RepoSrc) {
+    Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
+    New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
+    & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
+        /XD "windows-storage" "windows-oem" ".git" "vcpkg-cache" "artifacts" ".worktree" `
+        /Z /MT:4 /R:3 /W:5 /NDL /NFL
+    Write-Log "Source copied."
+
+    # Save a pristine copy of the solution for the build script to prune.
+    $Sln = "$RepoDst\IRCBot\IRCBot.sln"
+    if (Test-Path $Sln) {
+        Copy-Item $Sln "$OEM\IRCBot.sln.orig" -Force
+        Write-Log "Saved pristine IRCBot.sln to $OEM\IRCBot.sln.orig."
+    }
+} else {
+    Write-Log "Shared source not found at $RepoSrc. You will need to copy the source manually."
+}
+
 $ArchivePath = Find-DependencyArchive
 if ($UseDepsArchive) {
     if (-not $ArchivePath) {
@@ -321,26 +341,6 @@ if ($UseDepsArchive) {
 
     # 5. vcpkg packages (x86 to match the Win32 .vcxproj files)
     $triplet = "x86-windows"
-
-    # Copy the RadioBot source into a local directory before running vcpkg so the
-    # build does not depend on the sometimes-flaky Samba mapped drive.
-    if (Test-Path $RepoSrc) {
-        Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
-        New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
-        & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
-            /XD "windows-storage" "windows-oem" ".git" "vcpkg-cache" "artifacts" ".worktree" `
-            /Z /MT:4 /R:3 /W:5 /NDL /NFL
-        Write-Log "Source copied."
-
-        # Save a pristine copy of the solution for the build script to prune.
-        $Sln = "$RepoDst\IRCBot\IRCBot.sln"
-        if (Test-Path $Sln) {
-            Copy-Item $Sln "$OEM\IRCBot.sln.orig" -Force
-            Write-Log "Saved pristine IRCBot.sln to $OEM\IRCBot.sln.orig."
-        }
-    } else {
-        Write-Log "Shared source not found at $RepoSrc. You will need to copy the source manually."
-    }
 
     # Use the local copy for the vcpkg manifest. This avoids any issues with
     # elevated sessions not seeing the mapped Z: drive.
