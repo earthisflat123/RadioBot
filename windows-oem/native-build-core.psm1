@@ -151,12 +151,33 @@ function Get-StepCommands {
     )
     if ($UseDepsArchive) { $setupArgs += '-UseDepsArchive' }
 
+    # Start-Process -ArgumentList passes each element to CreateProcess, so
+    # we strip the extra quotes we added for the string form.
+    $setupArgList = @(
+        '-ExecutionPolicy', 'Bypass',
+        '-NoProfile',
+        '-File', "$OEM\setup.ps1",
+        '-Native',
+        '-RepoSrc', $RepoDir,
+        '-RepoDst', $RepoDir,
+        '-OEM', $OEM
+    )
+    if ($UseDepsArchive) { $setupArgList += '-UseDepsArchive' }
+
     $buildArgs = @(
         '-ExecutionPolicy', 'Bypass',
         '-NoProfile',
         '-File', "`"$OEM\build-radiobot.ps1`"",
         '-RepoDir', "`"$RepoDir`"",
         '-OEM', "`"$OEM`""
+    )
+
+    $buildArgList = @(
+        '-ExecutionPolicy', 'Bypass',
+        '-NoProfile',
+        '-File', "$OEM\build-radiobot.ps1",
+        '-RepoDir', $RepoDir,
+        '-OEM', $OEM
     )
 
     $outFile = Join-Path $RepoDir 'artifacts\RadioBot-setup.exe'
@@ -169,24 +190,36 @@ function Get-StepCommands {
         '-OutFile', "`"$outFile`""
     )
 
+    $packageArgList = @(
+        '-ExecutionPolicy', 'Bypass',
+        '-NoProfile',
+        '-File', "$OEM\package-installer.ps1",
+        '-RepoDir', $RepoDir,
+        '-OEM', $OEM,
+        '-OutFile', $outFile
+    )
+
     return @(
         @{
-            Name      = 'Setup'
-            FileName  = 'powershell.exe'
-            Arguments = $setupArgs -join ' '
-            LogHint   = 'Installing build tools and dependencies...'
+            Name        = 'Setup'
+            FileName    = 'powershell.exe'
+            Arguments   = $setupArgs -join ' '
+            ArgumentList = $setupArgList
+            LogHint     = 'Installing build tools and dependencies...'
         },
         @{
-            Name      = 'Build'
-            FileName  = 'powershell.exe'
-            Arguments = $buildArgs -join ' '
-            LogHint   = 'Building RadioBot with MSBuild...'
+            Name        = 'Build'
+            FileName    = 'powershell.exe'
+            Arguments   = $buildArgs -join ' '
+            ArgumentList = $buildArgList
+            LogHint     = 'Building RadioBot with MSBuild...'
         },
         @{
-            Name      = 'Package'
-            FileName  = 'powershell.exe'
-            Arguments = $packageArgs -join ' '
-            LogHint   = 'Building RadioBot-setup.exe...'
+            Name        = 'Package'
+            FileName    = 'powershell.exe'
+            Arguments   = $packageArgs -join ' '
+            ArgumentList = $packageArgList
+            LogHint     = 'Building RadioBot-setup.exe...'
         }
     )
 }

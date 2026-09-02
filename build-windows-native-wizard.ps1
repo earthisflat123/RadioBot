@@ -59,13 +59,14 @@ function Write-WizardError($Message) {
 })
 
 $script:CurrentStep = 0
-$script:StepRunId = 0
 $script:StepCommands = $null
 $script:RepoDir = $RepoDir
 $script:Branch = $Branch
 $script:OEM = ''
 $script:RunningProcess = $null
 $script:UseDepsArchive = $false
+$script:CurrentStepName = ''
+$script:CurrentExitReadCount = 0
 
 $form = New-Object System.Windows.Forms.Form
 $form.Text = 'RadioBot Native Windows Build Wizard'
@@ -109,17 +110,85 @@ $logBox.Location = New-Object System.Drawing.Point(15, 335)
 $logBox.Font = New-Object System.Drawing.Font('Consolas', 9)
 $form.Controls.Add($logBox)
 
-# Pending log lines are collected on the process event threads and flushed
-# by a UI timer so the log box is updated on the correct thread.
-$script:PendingLogLines = [System.Collections.Generic.List[string]]::new()
-
+# Tail the redirected stdout/stderr files on the UI thread and advance
+# the wizard when the monitored child process has exited.
 $logTimer = New-Object System.Windows.Forms.Timer
 $logTimer.Interval = 100
 $logTimer.Add_Tick({
-    if ($script:PendingLogLines.Count -gt 0) {
-        $lines = $script:PendingLogLines.ToArray()
-        $script:PendingLogLines.Clear()
-        foreach ($line in $lines) { Append-Log $line }
+    try {
+        if ($form.IsDisposed -or -not $form.IsHandleCreated) { return }
+        if (-not $script:RunningProcess) { return }
+
+        # Open readers once the files exist.
+        if (-not $script:CurrentOutReader -and (Test-Path $script:CurrentOutFile)) {
+            $script:CurrentOutReader = [System.IO.StreamReader]::new(
+                [System.IO.File]::Open($script:CurrentOutFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite),
+                [System.Text.Encoding]::Default
+            )
+        }
+        if (-not $script:CurrentErrReader -and (Test-Path $script:CurrentErrFile)) {
+            $script:CurrentErrReader = [System.IO.StreamReader]::new(
+                [System.IO.File]::Open($script:CurrentErrFile, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite),
+                [System.Text.Encoding]::Default
+            )
+        }
+
+        # Drain available lines.
+        if ($script:CurrentOutReader) {
+            while ($null -ne ($line = $script:CurrentOutReader.ReadLine())) {
+                Append-Log $line
+            }
+        }
+        if ($script:CurrentErrReader) {
+            while ($null -ne ($line = $script:CurrentErrReader.ReadLine())) {
+                Append-Log "ERR: $line"
+            }
+        }
+
+        if ($script:RunningProcess.WaitForExit(0)) {
+            # The process has exited. Drain the tee files a few more ticks so
+            # that the async OutputDataReceived handlers finish writing, then
+            # switch to the next step.
+            $script:CurrentExitReadCount++
+            if ($script:CurrentExitReadCount -ge 5) {
+                if ($script:CurrentOutReader) {
+                    while ($null -ne ($line = $script:CurrentOutReader.ReadLine())) { Append-Log $line }
+                }
+                if ($script:CurrentErrReader) {
+                    while ($null -ne ($line = $script:CurrentErrReader.ReadLine())) { Append-Log "ERR: $line" }
+                }
+
+                if ($script:CurrentOutReader) { $script:CurrentOutReader.Close(); $script:CurrentOutReader = $null }
+                if ($script:CurrentErrReader) { $script:CurrentErrReader.Close(); $script:CurrentErrReader = $null }
+                if ($script:CurrentTee) { $script:CurrentTee.Close(); $script:CurrentTee = $null }
+
+                $progress.Visible = $false
+                $btnCancel.Enabled = $true
+                $btnBack.Enabled = ($script:CurrentStep -gt 0 -and $script:CurrentStep -lt 4)
+                $btnNext.Enabled = $true
+
+                $p = $script:RunningProcess
+                $stepName = if ([string]::IsNullOrWhiteSpace($script:CurrentStepName)) { 'Step' } else { $script:CurrentStepName }
+                $exitCode = $p.ExitCode
+                $script:RunningProcess = $null
+                $script:CurrentExitReadCount = 0
+
+                if ($exitCode -ne 0) {
+                    Append-Log "ERROR: '$stepName' failed with exit code $exitCode."
+                    [System.Windows.Forms.MessageBox]::Show("'$stepName' failed. Check the log for details.", 'Error', 'OK', 'Error') | Out-Null
+                } else {
+                    Append-Log "=== '$stepName' finished ==="
+                    $current = $script:CurrentStep
+                    if ($current -lt 3) {
+                        Switch-Page ($current + 1)
+                    } else {
+                        Show-FinishPage
+                    }
+                }
+            }
+        }
+    } catch {
+        Write-WizardError "Timer tick error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
     }
 })
 $logTimer.Start()
@@ -379,11 +448,44 @@ function Append-Log {
     }
 }
 
-function Add-PendingLog($Line) {
-    if (-not [string]::IsNullOrWhiteSpace($Line)) {
-        [void]$script:PendingLogLines.Add($Line)
+# C# helper that can be attached as a real DataReceivedEventHandler. Windows
+# PowerShell 5.1 cannot attach a scriptblock directly, so the handler writes
+# each line to a shared file that the UI timer tails.
+$teeSource = @'
+using System;
+using System.Diagnostics;
+using System.IO;
+using System.Text;
+
+public class ProcessOutputTee : IDisposable {
+    private StreamWriter outWriter;
+    private StreamWriter errWriter;
+    private readonly object l = new object();
+
+    public ProcessOutputTee(string outFile, string errFile) {
+        outWriter = new StreamWriter(
+            new FileStream(outFile, FileMode.Create, FileAccess.Write, FileShare.ReadWrite),
+            Encoding.Default) { AutoFlush = true };
+        errWriter = new StreamWriter(
+            new FileStream(errFile, FileMode.Create, FileAccess.Write, FileShare.ReadWrite),
+            Encoding.Default) { AutoFlush = true };
     }
+
+    public void OnOutput(object sender, DataReceivedEventArgs e) {
+        if (e.Data != null) { lock (l) { outWriter.WriteLine(e.Data); } }
+    }
+    public void OnError(object sender, DataReceivedEventArgs e) {
+        if (e.Data != null) { lock (l) { errWriter.WriteLine(e.Data); } }
+    }
+
+    public void Close() {
+        if (outWriter != null) { outWriter.Close(); }
+        if (errWriter != null) { errWriter.Close(); }
+    }
+    public void Dispose() { Close(); }
 }
+'@
+Add-Type -TypeDefinition $teeSource -ReferencedAssemblies 'System.dll'
 
 function Start-LoggedProcess {
     param(
@@ -398,87 +500,39 @@ function Start-LoggedProcess {
     Append-Log "=== Starting: $($Step.Name) ==="
     Append-Log $Step.LogHint
 
-    $script:StepRunId++
-    $script:CurrentOutSource = "Step-$($script:StepRunId)-Output"
-    $script:CurrentErrSource = "Step-$($script:StepRunId)-Error"
-    $outSource = $script:CurrentOutSource
-    $errSource = $script:CurrentErrSource
+    $outFile = "C:\Temp\radiobot-wizard-$($Step.Name)-out.log"
+    $errFile = "C:\Temp\radiobot-wizard-$($Step.Name)-err.log"
+    Remove-Item $outFile -ErrorAction SilentlyContinue
+    Remove-Item $errFile -ErrorAction SilentlyContinue
 
-    $p = New-Object System.Diagnostics.Process
-    $p.StartInfo.FileName = $Step.FileName
-    $p.StartInfo.Arguments = $Step.Arguments
-    $p.StartInfo.UseShellExecute = $false
-    $p.StartInfo.RedirectStandardOutput = $true
-    $p.StartInfo.RedirectStandardError = $true
-    $p.StartInfo.CreateNoWindow = $true
-    $p.EnableRaisingEvents = $true
+    $psi = New-Object System.Diagnostics.ProcessStartInfo
+    $psi.FileName = $Step.FileName
+    $psi.Arguments = $Step.Arguments
+    $psi.UseShellExecute = $false
+    $psi.RedirectStandardOutput = $true
+    $psi.RedirectStandardError = $true
+    $psi.CreateNoWindow = $true
 
-    # Use Register-ObjectEvent for stdout/stderr.  Directly adding a
-    # DataReceivedEventHandler with a scriptblock does not work in Windows
-    # PowerShell 5.1 and silently terminates the wizard.
-    $null = Register-ObjectEvent -InputObject $p -EventName OutputDataReceived -SourceIdentifier $outSource -Action {
-        if ($EventArgs.Data) { Add-PendingLog $EventArgs.Data }
-    }
-    $null = Register-ObjectEvent -InputObject $p -EventName ErrorDataReceived -SourceIdentifier $errSource -Action {
-        if ($EventArgs.Data) { Add-PendingLog $EventArgs.Data }
-    }
+    $tee = New-Object ProcessOutputTee -ArgumentList $outFile, $errFile
+    $outMethod = $tee.GetType().GetMethod('OnOutput')
+    $errMethod = $tee.GetType().GetMethod('OnError')
+    $outHandler = [System.Delegate]::CreateDelegate([System.Diagnostics.DataReceivedEventHandler], $tee, $outMethod)
+    $errHandler = [System.Delegate]::CreateDelegate([System.Diagnostics.DataReceivedEventHandler], $tee, $errMethod)
 
-    $p.add_Exited({
-        # WinForms events run on a thread pool, so UI updates must be
-        # marshalled back to the form's UI thread.
-        [void]$form.BeginInvoke([Action]{
-            try {
-                if ($form.IsDisposed -or -not $form.IsHandleCreated) { return }
-
-                $logTimer.Stop()
-                $lines = $script:PendingLogLines.ToArray()
-                $script:PendingLogLines.Clear()
-                foreach ($line in $lines) { Append-Log $line }
-
-                Unregister-Event -SourceIdentifier $script:CurrentOutSource -ErrorAction SilentlyContinue
-                Unregister-Event -SourceIdentifier $script:CurrentErrSource -ErrorAction SilentlyContinue
-
-                $progress.Visible = $false
-                $btnCancel.Enabled = $true
-                $btnBack.Enabled = ($script:CurrentStep -gt 0 -and $script:CurrentStep -lt 4)
-                $btnNext.Enabled = $true
-                $script:RunningProcess = $null
-
-                if ($p.ExitCode -ne 0) {
-                    Append-Log "ERROR: '$($Step.Name)' failed with exit code $($p.ExitCode)."
-                    [System.Windows.Forms.MessageBox]::Show("'$($Step.Name)' failed. Check the log for details.", 'Error', 'OK', 'Error') | Out-Null
-                } else {
-                    Append-Log "=== '$($Step.Name)' finished ==="
-                    if ($Step.Name -eq 'Clone') {
-                        # The repo now exists; re-evaluate dependency archive availability.
-                        $archiveDest = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
-                        $customArchive = $txtArchivePath.Text.Trim()
-                        if ($chkUseArchive.Checked -and $customArchive -and (Test-Path $customArchive)) {
-                            Copy-Item $customArchive $archiveDest -Force
-                        }
-                        if (Test-Path $archiveDest) {
-                            $script:UseDepsArchive = $true
-                        }
-                        $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$script:UseDepsArchive
-                    }
-                    if ($script:CurrentStep -lt 3) {
-                        Switch-Page ($script:CurrentStep + 1)
-                    } else {
-                        Show-FinishPage
-                    }
-                }
-                $logTimer.Start()
-            } catch {
-                Write-WizardError "Exited handler error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
-                [System.Windows.Forms.MessageBox]::Show("Error in step handler: $($_.Exception.Message)", 'Error', 'OK', 'Error') | Out-Null
-            }
-        })
-    })
-
-    $script:RunningProcess = $p
-    [void]$p.Start()
+    $p = [System.Diagnostics.Process]::Start($psi)
+    $p.add_OutputDataReceived($outHandler)
+    $p.add_ErrorDataReceived($errHandler)
     $p.BeginOutputReadLine()
     $p.BeginErrorReadLine()
+
+    $script:RunningProcess       = $p
+    $script:CurrentTee           = $tee
+    $script:CurrentOutFile       = $outFile
+    $script:CurrentErrFile       = $errFile
+    $script:CurrentOutReader     = $null
+    $script:CurrentErrReader     = $null
+    $script:CurrentExitReadCount = 0
+    $script:CurrentStepName      = $Step.Name
 }
 
 function Show-FinishPage {
@@ -519,12 +573,13 @@ function Resolve-RepoPage {
             $btnNext.Enabled = $false
             $btnCancel.Enabled = $false
 
-            $cloneArgs = @('clone', '--depth', '1', '--branch', $branch, $url, $script:RepoDir) -join ' '
+            $cloneArgs = @('clone', '--depth', '1', '--branch', $branch, $url, $script:RepoDir)
             $cloneStep = @{
-                Name      = 'Clone'
-                FileName  = 'git.exe'
-                Arguments = $cloneArgs
-                LogHint   = "Cloning $url (branch $branch) into $script:RepoDir..."
+                Name         = 'Clone'
+                FileName     = 'git.exe'
+                Arguments    = $cloneArgs -join ' '
+                ArgumentList = $cloneArgs
+                LogHint      = "Cloning $url (branch $branch) into $script:RepoDir..."
             }
             Start-LoggedProcess $cloneStep
             # Switch to build page after clone completes; do not advance immediately.
