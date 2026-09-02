@@ -30,8 +30,33 @@ if (-not (Test-Administrator)) {
 
 Initialize-NativeBuildLog
 
+# Capture all console output (including unhandled errors) to a transcript.
+$script:WizardTranscript = 'C:\Temp\radiobot-wizard-transcript.log'
+if (Test-Path $script:WizardTranscript) { Remove-Item $script:WizardTranscript -Force }
+Start-Transcript -Path $script:WizardTranscript -Force -ErrorAction SilentlyContinue | Out-Null
+
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
+
+# Global error logging so silent failures are captured.
+$script:WizardErrorLog = 'C:\Temp\radiobot-wizard-error.log'
+function Write-WizardError($Message) {
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    try { Add-Content -Path $script:WizardErrorLog -Value "$ts $Message" -ErrorAction SilentlyContinue } catch {}
+}
+
+[void][System.Windows.Forms.Application]::add_ThreadException({
+    param($sender, $e)
+    Write-WizardError "ThreadException: $($e.Exception.Message)`n$($e.Exception.StackTrace)"
+    try { [System.Windows.Forms.MessageBox]::Show("Unhandled UI thread exception:`n$($e.Exception.Message)", 'Error', 'OK', 'Error') | Out-Null } catch {}
+})
+
+[void][AppDomain]::CurrentDomain.add_UnhandledException({
+    param($sender, $e)
+    $ex = $e.ExceptionObject
+    Write-WizardError "UnhandledException: $($ex.Message)`n$($ex.StackTrace)"
+    try { [System.Windows.Forms.MessageBox]::Show("Unhandled exception:`n$($ex.Message)", 'Error', 'OK', 'Error') | Out-Null } catch {}
+})
 
 $script:CurrentStep = 0
 $script:StepCommands = $null
@@ -285,43 +310,52 @@ $form.Controls.Add($page4)
 
 function Switch-Page {
     param([int]$Index)
-    # $page1 is reused for steps 1-3; $page4 is the finish page.
-    $page0.Visible = ($Index -eq 0)
-    $page1.Visible = ($Index -in 1,2,3)
-    $page4.Visible = ($Index -eq 4)
-    $script:CurrentStep = $Index
-    $btnBack.Enabled = ($Index -gt 0 -and $Index -lt 4)
+    try {
+        # $page1 is reused for steps 1-3; $page4 is the finish page.
+        $page0.Visible = ($Index -eq 0)
+        $page1.Visible = ($Index -in 1,2,3)
+        $page4.Visible = ($Index -eq 4)
+        $script:CurrentStep = $Index
+        $btnBack.Enabled = ($Index -gt 0 -and $Index -lt 4)
 
-    if ($Index -eq 0) {
-        $btnNext.Text = 'Next >'
-        $header.Text = 'Step 1: Repository'
-    } elseif ($Index -eq 1) {
-        $btnNext.Text = 'Setup >'
-        $header.Text = 'Step 2: Setup build environment'
-        $lblStep.Text = 'Ready to set up the build environment.'
-        $lblStepDesc.Text = 'Click Setup to install Chocolatey, Visual Studio Build Tools, vcpkg, DSL, libfaac and libspopc.'
-    } elseif ($Index -eq 2) {
-        $btnNext.Text = 'Build >'
-        $header.Text = 'Step 3: Build RadioBot'
-        $lblStep.Text = 'Ready to build RadioBot.'
-        $lblStepDesc.Text = 'Click Build to compile the solution with MSBuild.'
-    } elseif ($Index -eq 3) {
-        $btnNext.Text = 'Package >'
-        $header.Text = 'Step 4: Package installer'
-        $lblStep.Text = 'Ready to package the installer.'
-        $lblStepDesc.Text = 'Click Package to build RadioBot-setup.exe with NSIS.'
-    } elseif ($Index -eq 4) {
-        $btnNext.Text = 'Finish'
-        $btnNext.Enabled = $false
-        $btnBack.Enabled = $false
-        $header.Text = 'Step 5: Finish'
+        if ($Index -eq 0) {
+            $btnNext.Text = 'Next >'
+            $header.Text = 'Step 1: Repository'
+        } elseif ($Index -eq 1) {
+            $btnNext.Text = 'Setup >'
+            $header.Text = 'Step 2: Setup build environment'
+            $lblStep.Text = 'Ready to set up the build environment.'
+            $lblStepDesc.Text = 'Click Setup to install Chocolatey, Visual Studio Build Tools, vcpkg, DSL, libfaac and libspopc.'
+        } elseif ($Index -eq 2) {
+            $btnNext.Text = 'Build >'
+            $header.Text = 'Step 3: Build RadioBot'
+            $lblStep.Text = 'Ready to build RadioBot.'
+            $lblStepDesc.Text = 'Click Build to compile the solution with MSBuild.'
+        } elseif ($Index -eq 3) {
+            $btnNext.Text = 'Package >'
+            $header.Text = 'Step 4: Package installer'
+            $lblStep.Text = 'Ready to package the installer.'
+            $lblStepDesc.Text = 'Click Package to build RadioBot-setup.exe with NSIS.'
+        } elseif ($Index -eq 4) {
+            $btnNext.Text = 'Finish'
+            $btnNext.Enabled = $false
+            $btnBack.Enabled = $false
+            $header.Text = 'Step 5: Finish'
+        }
+    } catch {
+        Write-WizardError "Switch-Page error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
+        throw
     }
 }
 
 function Append-Log {
     param([string]$Line)
     if ($logBox.IsDisposed -or $form.IsDisposed -or -not $form.IsHandleCreated) { return }
-    $logBox.Invoke([Action]{ if (-not $logBox.IsDisposed) { $logBox.AppendText("$Line`r`n") } })
+    try {
+        $logBox.Invoke([Action]{ if (-not $logBox.IsDisposed) { $logBox.AppendText("$Line`r`n") } })
+    } catch {
+        Write-WizardError "Append-Log error: $($_.Exception.Message)"
+    }
 }
 
 function Start-LoggedProcess {
@@ -356,36 +390,41 @@ function Start-LoggedProcess {
         # WinForms events run on a thread pool, so UI updates must be
         # marshalled back to the form's UI thread.
         [void]$form.BeginInvoke([Action]{
-            if ($form.IsDisposed -or -not $form.IsHandleCreated) { return }
+            try {
+                if ($form.IsDisposed -or -not $form.IsHandleCreated) { return }
 
-            $progress.Visible = $false
-            $btnCancel.Enabled = $true
-            $btnBack.Enabled = ($script:CurrentStep -gt 0 -and $script:CurrentStep -lt 4)
-            $btnNext.Enabled = $true
-            $script:RunningProcess = $null
+                $progress.Visible = $false
+                $btnCancel.Enabled = $true
+                $btnBack.Enabled = ($script:CurrentStep -gt 0 -and $script:CurrentStep -lt 4)
+                $btnNext.Enabled = $true
+                $script:RunningProcess = $null
 
-            if ($p.ExitCode -ne 0) {
-                Append-Log "ERROR: '$($Step.Name)' failed with exit code $($p.ExitCode)."
-                [System.Windows.Forms.MessageBox]::Show("'$($Step.Name)' failed. Check the log for details.", 'Error', 'OK', 'Error') | Out-Null
-            } else {
-                Append-Log "=== '$($Step.Name)' finished ==="
-                if ($Step.Name -eq 'Clone') {
-                    # The repo now exists; re-evaluate dependency archive availability.
-                    $archiveDest = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
-                    $customArchive = $txtArchivePath.Text.Trim()
-                    if ($chkUseArchive.Checked -and $customArchive -and (Test-Path $customArchive)) {
-                        Copy-Item $customArchive $archiveDest -Force
-                    }
-                    if (Test-Path $archiveDest) {
-                        $script:UseDepsArchive = $true
-                    }
-                    $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$script:UseDepsArchive
-                }
-                if ($script:CurrentStep -lt 3) {
-                    Switch-Page ($script:CurrentStep + 1)
+                if ($p.ExitCode -ne 0) {
+                    Append-Log "ERROR: '$($Step.Name)' failed with exit code $($p.ExitCode)."
+                    [System.Windows.Forms.MessageBox]::Show("'$($Step.Name)' failed. Check the log for details.", 'Error', 'OK', 'Error') | Out-Null
                 } else {
-                    Show-FinishPage
+                    Append-Log "=== '$($Step.Name)' finished ==="
+                    if ($Step.Name -eq 'Clone') {
+                        # The repo now exists; re-evaluate dependency archive availability.
+                        $archiveDest = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
+                        $customArchive = $txtArchivePath.Text.Trim()
+                        if ($chkUseArchive.Checked -and $customArchive -and (Test-Path $customArchive)) {
+                            Copy-Item $customArchive $archiveDest -Force
+                        }
+                        if (Test-Path $archiveDest) {
+                            $script:UseDepsArchive = $true
+                        }
+                        $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$script:UseDepsArchive
+                    }
+                    if ($script:CurrentStep -lt 3) {
+                        Switch-Page ($script:CurrentStep + 1)
+                    } else {
+                        Show-FinishPage
+                    }
                 }
+            } catch {
+                Write-WizardError "Exited handler error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
+                [System.Windows.Forms.MessageBox]::Show("Error in step handler: $($_.Exception.Message)", 'Error', 'OK', 'Error') | Out-Null
             }
         })
     })
@@ -397,93 +436,121 @@ function Start-LoggedProcess {
 }
 
 function Show-FinishPage {
-    Switch-Page 4
-    $clbBinaries.Items.Clear()
-    $binaries = Get-BuiltBinaries -RepoDir $script:RepoDir
-    foreach ($b in $binaries) { [void]$clbBinaries.Items.Add($b, $false) }
-    $installer = Get-InstallerPath -RepoDir $script:RepoDir
-    if ($installer) {
-        Append-Log "Installer ready: $installer"
+    try {
+        Switch-Page 4
+        $clbBinaries.Items.Clear()
+        $binaries = Get-BuiltBinaries -RepoDir $script:RepoDir
+        foreach ($b in $binaries) { [void]$clbBinaries.Items.Add($b, $false) }
+        $installer = Get-InstallerPath -RepoDir $script:RepoDir
+        if ($installer) {
+            Append-Log "Installer ready: $installer"
+        }
+    } catch {
+        Write-WizardError "Show-FinishPage error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
+        throw
     }
 }
 
 function Resolve-RepoPage {
-    if ($rbLocal.Checked) {
-        $script:RepoDir = $txtRepoDir.Text.Trim()
-        if (-not (Test-Path "$script:RepoDir\vcpkg.json")) {
-            [System.Windows.Forms.MessageBox]::Show("No RadioBot repo detected at $script:RepoDir (vcpkg.json not found).", 'Error', 'OK', 'Error') | Out-Null
+    try {
+        if ($rbLocal.Checked) {
+            $script:RepoDir = $txtRepoDir.Text.Trim()
+            if (-not (Test-Path "$script:RepoDir\vcpkg.json")) {
+                [System.Windows.Forms.MessageBox]::Show("No RadioBot repo detected at $script:RepoDir (vcpkg.json not found).", 'Error', 'OK', 'Error') | Out-Null
+                return $false
+            }
+            $script:OEM = Join-Path $script:RepoDir 'windows-oem'
+        } else {
+            $source = if ($rbFork.Checked) { 'Fork' } elseif ($rbUpstream.Checked) { 'Upstream' } else { 'Other' }
+            $url = Get-RepositoryUrl -Choice $source -CustomUrl $txtOtherUrl.Text.Trim()
+            $script:RepoDir = $txtRepoDir.Text.Trim()
+            $branch = if ([string]::IsNullOrWhiteSpace($txtBranch.Text)) { 'master' } else { $txtBranch.Text.Trim() }
+
+            # Pre-initialise step commands so the wizard can proceed after clone.
+            $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$false
+
+            $progress.Visible = $true
+            $btnNext.Enabled = $false
+            $btnCancel.Enabled = $false
+
+            $cloneArgs = @('clone', '--depth', '1', '--branch', $branch, $url, $script:RepoDir) -join ' '
+            $cloneStep = @{
+                Name      = 'Clone'
+                FileName  = 'git.exe'
+                Arguments = $cloneArgs
+                LogHint   = "Cloning $url (branch $branch) into $script:RepoDir..."
+            }
+            Start-LoggedProcess $cloneStep
+            # Switch to build page after clone completes; do not advance immediately.
             return $false
         }
-        $script:OEM = Join-Path $script:RepoDir 'windows-oem'
-    } else {
-        $source = if ($rbFork.Checked) { 'Fork' } elseif ($rbUpstream.Checked) { 'Upstream' } else { 'Other' }
-        $url = Get-RepositoryUrl -Choice $source -CustomUrl $txtOtherUrl.Text.Trim()
-        $script:RepoDir = $txtRepoDir.Text.Trim()
-        $branch = if ([string]::IsNullOrWhiteSpace($txtBranch.Text)) { 'master' } else { $txtBranch.Text.Trim() }
 
-        # Pre-initialise step commands so the wizard can proceed after clone.
-        $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$false
-
-        $progress.Visible = $true
-        $btnNext.Enabled = $false
-        $btnCancel.Enabled = $false
-
-        $cloneArgs = @('clone', '--depth', '1', '--branch', $branch, $url, $script:RepoDir) -join ' '
-        $cloneStep = @{
-            Name      = 'Clone'
-            FileName  = 'git.exe'
-            Arguments = $cloneArgs
-            LogHint   = "Cloning $url (branch $branch) into $script:RepoDir..."
+        # Auto-detect or use provided deps archive.
+        $archivePath = $txtArchivePath.Text.Trim()
+        if ([string]::IsNullOrWhiteSpace($archivePath)) {
+            $archivePath = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
         }
-        Start-LoggedProcess $cloneStep
-        # Switch to build page after clone completes; do not advance immediately.
+        $script:UseDepsArchive = ($chkUseArchive.Checked -and (Test-Path $archivePath))
+        if ($script:UseDepsArchive) {
+            # Make sure the archive is at the repo root where setup.ps1 looks for it.
+            $dest = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
+            if ($archivePath -ne $dest) {
+                Copy-Item $archivePath $dest -Force
+            }
+        }
+
+        $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$script:UseDepsArchive
+        return $true
+    } catch {
+        Write-WizardError "Resolve-RepoPage error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
+        [System.Windows.Forms.MessageBox]::Show("Repository page error: $($_.Exception.Message)", 'Error', 'OK', 'Error') | Out-Null
         return $false
     }
-
-    # Auto-detect or use provided deps archive.
-    $archivePath = $txtArchivePath.Text.Trim()
-    if ([string]::IsNullOrWhiteSpace($archivePath)) {
-        $archivePath = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
-    }
-    $script:UseDepsArchive = ($chkUseArchive.Checked -and (Test-Path $archivePath))
-    if ($script:UseDepsArchive) {
-        # Make sure the archive is at the repo root where setup.ps1 looks for it.
-        $dest = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
-        if ($archivePath -ne $dest) {
-            Copy-Item $archivePath $dest -Force
-        }
-    }
-
-    $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$script:UseDepsArchive
-    return $true
 }
 
 $btnNext.Add_Click({
-    if ($script:CurrentStep -eq 0) {
-        if (-not (Resolve-RepoPage)) { return }
-        Switch-Page 1
-    } elseif ($script:CurrentStep -in 1,2,3) {
-        $step = $script:StepCommands[$script:CurrentStep - 1]
-        Start-LoggedProcess $step
+    try {
+        if ($script:CurrentStep -eq 0) {
+            if (-not (Resolve-RepoPage)) { return }
+            Switch-Page 1
+        } elseif ($script:CurrentStep -in 1,2,3) {
+            $step = $script:StepCommands[$script:CurrentStep - 1]
+            Start-LoggedProcess $step
+        }
+    } catch {
+        Write-WizardError "Next button error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
+        [System.Windows.Forms.MessageBox]::Show("Next step error: $($_.Exception.Message)", 'Error', 'OK', 'Error') | Out-Null
     }
 })
 
 $btnBack.Add_Click({
-    if ($script:CurrentStep -gt 0 -and $script:CurrentStep -lt 4) {
-        Switch-Page ($script:CurrentStep - 1)
+    try {
+        if ($script:CurrentStep -gt 0 -and $script:CurrentStep -lt 4) {
+            Switch-Page ($script:CurrentStep - 1)
+        }
+    } catch {
+        Write-WizardError "Back button error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
     }
 })
 
 $btnCancel.Add_Click({
-    if ($script:RunningProcess -and -not $script:RunningProcess.HasExited) {
-        $script:RunningProcess.Kill()
+    try {
+        if ($script:RunningProcess -and -not $script:RunningProcess.HasExited) {
+            $script:RunningProcess.Kill()
+        }
+    } catch {
+        Write-WizardError "Cancel/Kill error: $($_.Exception.Message)"
     }
     $form.Close()
 })
 
 $form.Add_FormClosing({
-    if ($script:RunningProcess -and -not $script:RunningProcess.HasExited) {
-        $script:RunningProcess.Kill()
+    try {
+        if ($script:RunningProcess -and -not $script:RunningProcess.HasExited) {
+            $script:RunningProcess.Kill()
+        }
+    } catch {
+        Write-WizardError "FormClosing/Kill error: $($_.Exception.Message)"
     }
 })
 
@@ -492,4 +559,11 @@ if (-not [string]::IsNullOrWhiteSpace($script:RepoDir)) {
     if (Test-Path "$script:RepoDir\vcpkg.json") { $rbLocal.Checked = $true }
 }
 
-$form.ShowDialog() | Out-Null
+try {
+    $form.ShowDialog() | Out-Null
+} catch {
+    Write-WizardError "ShowDialog error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
+    [System.Windows.Forms.MessageBox]::Show("Wizard error: $($_.Exception.Message)", 'Error', 'OK', 'Error') | Out-Null
+} finally {
+    Stop-Transcript -ErrorAction SilentlyContinue | Out-Null
+}
