@@ -150,6 +150,23 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "inc_build build failed" }
     Copy-Item "$RepoDir\inc_build\Release\inc_build.exe" "$RepoDir\inc_build.exe" -Force -ErrorAction SilentlyContinue
 
+    # Bump build.h once here, then neuter the per-project CustomBuildStep that
+    # would otherwise race when the solution is built with /m (two projects
+    # try to read build.ini / write build.h at the same time).
+    & "$RepoDir\inc_build.exe" "$RepoDir\v5\src\build.ini" "$RepoDir\v5\src\build.h"
+
+    $ns = @{ ms = 'http://schemas.microsoft.com/developer/msbuild/2003' }
+    foreach ($projFile in @("$RepoDir\v5\IRCBot5\IRCBot5.vcxproj", "$RepoDir\v5\IRCBot5_Standalone\IRCBot5_Standalone.vcxproj")) {
+        if (Test-Path $projFile) {
+            [xml]$vcx = Get-Content $projFile
+            $cmdNode = (Select-Xml -Xml $vcx -Namespace $ns -XPath '//ms:CustomBuildStep/ms:Command[contains(text(),"inc_build.exe")]' | Select-Object -First 1).Node
+            if ($cmdNode -and $cmdNode.InnerText -notmatch 'exit 0') {
+                $cmdNode.InnerText = 'cmd /c exit 0'
+                $vcx.Save($projFile)
+            }
+        }
+    }
+
     # 10. Build the full solution in parallel.
     & $MsBuild $Sln /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
     if ($LASTEXITCODE -ne 0) { throw "RadioBot build failed" }

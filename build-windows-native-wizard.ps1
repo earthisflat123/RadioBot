@@ -38,6 +38,11 @@ Start-Transcript -Path $script:WizardTranscript -Force -ErrorAction SilentlyCont
 Add-Type -AssemblyName System.Windows.Forms
 Add-Type -AssemblyName System.Drawing
 
+# Enable Windows visual styles (modern controls and a working marquee
+# progress bar). This must be called before any controls are created.
+[System.Windows.Forms.Application]::EnableVisualStyles()
+[System.Windows.Forms.Application]::SetCompatibleTextRenderingDefault($false)
+
 # Global error logging so silent failures are captured.
 $script:WizardErrorLog = 'C:\Temp\radiobot-wizard-error.log'
 function Write-WizardError($Message) {
@@ -105,8 +110,8 @@ $logBox = New-Object System.Windows.Forms.TextBox
 $logBox.Multiline = $true
 $logBox.ScrollBars = 'Vertical'
 $logBox.ReadOnly = $true
-$logBox.Size = New-Object System.Drawing.Size(860, 200)
-$logBox.Location = New-Object System.Drawing.Point(15, 335)
+$logBox.Size = New-Object System.Drawing.Size(860, 220)
+$logBox.Location = New-Object System.Drawing.Point(15, 315)
 $logBox.Font = New-Object System.Drawing.Font('Consolas', 9)
 $form.Controls.Add($logBox)
 
@@ -204,7 +209,7 @@ $pages = @()
 
 # --- Page 0: Repository / Clone ---
 $page0 = New-Object System.Windows.Forms.Panel
-$page0.Size = New-Object System.Drawing.Size(860, 285)
+$page0.Size = New-Object System.Drawing.Size(860, 260)
 $page0.Location = New-Object System.Drawing.Point(15, 45)
 $page0.Visible = $true
 
@@ -324,7 +329,7 @@ $form.Controls.Add($page0)
 
 # --- Page 1-3: Setup/Build/Package ---
 $page1 = New-Object System.Windows.Forms.Panel
-$page1.Size = New-Object System.Drawing.Size(860, 285)
+$page1.Size = New-Object System.Drawing.Size(860, 110)
 $page1.Location = New-Object System.Drawing.Point(15, 45)
 $page1.Visible = $false
 
@@ -346,7 +351,7 @@ $form.Controls.Add($page1)
 
 # --- Page 4: Finish ---
 $page4 = New-Object System.Windows.Forms.Panel
-$page4.Size = New-Object System.Drawing.Size(860, 285)
+$page4.Size = New-Object System.Drawing.Size(860, 270)
 $page4.Location = New-Object System.Drawing.Point(15, 45)
 $page4.Visible = $false
 
@@ -427,6 +432,17 @@ function Switch-Page {
             $btnBack.Enabled = $false
             $header.Text = 'Step 5: Finish'
         }
+
+        # Resize and reposition the log and progress controls so short pages
+        # do not leave a large empty gap and long pages still have a useful log.
+        if ($Index -in 1,2,3) {
+            $logBox.Size = New-Object System.Drawing.Size(860, 350)
+            $logBox.Location = New-Object System.Drawing.Point(15, 165)
+        } else {
+            $logBox.Size = New-Object System.Drawing.Size(860, 220)
+            $logBox.Location = New-Object System.Drawing.Point(15, 315)
+        }
+        $progress.Location = New-Object System.Drawing.Point(15, $logBox.Bottom + 10)
     } catch {
         Write-WizardError "Switch-Page error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
         throw
