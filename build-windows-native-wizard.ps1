@@ -16,7 +16,8 @@
 #>
 
 param(
-    [string]$RepoDir = ''
+    [string]$RepoDir = '',
+    [string]$Branch = 'master'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -35,6 +36,7 @@ Add-Type -AssemblyName System.Drawing
 $script:CurrentStep = 0
 $script:StepCommands = $null
 $script:RepoDir = $RepoDir
+$script:Branch = $Branch
 $script:OEM = ''
 $script:RunningProcess = $null
 $script:UseDepsArchive = $false
@@ -160,9 +162,21 @@ $btnBrowse.Add_Click({
 })
 $page0.Controls.Add($btnBrowse)
 
+$lblBranch = New-Object System.Windows.Forms.Label
+$lblBranch.Text = 'Branch to clone (leave as master if unsure):'
+$lblBranch.Size = New-Object System.Drawing.Size(260, 20)
+$lblBranch.Location = New-Object System.Drawing.Point(10, 182)
+$page0.Controls.Add($lblBranch)
+
+$txtBranch = New-Object System.Windows.Forms.TextBox
+$txtBranch.Text = $script:Branch
+$txtBranch.Size = New-Object System.Drawing.Size(580, 20)
+$txtBranch.Location = New-Object System.Drawing.Point(280, 182)
+$page0.Controls.Add($txtBranch)
+
 $chkUseArchive = New-Object System.Windows.Forms.CheckBox
 $chkUseArchive.Text = 'Use radiobot-windows-deps.7z dependency archive if it exists in the repo root (skips vcpkg builds)'
-$chkUseArchive.Location = New-Object System.Drawing.Point(10, 185)
+$chkUseArchive.Location = New-Object System.Drawing.Point(10, 215)
 $chkUseArchive.Size = New-Object System.Drawing.Size(800, 20)
 $chkUseArchive.Checked = $true
 $page0.Controls.Add($chkUseArchive)
@@ -170,18 +184,18 @@ $page0.Controls.Add($chkUseArchive)
 $lblArchive = New-Object System.Windows.Forms.Label
 $lblArchive.Text = 'Dependency archive path (leave blank to auto-detect):'
 $lblArchive.Size = New-Object System.Drawing.Size(300, 20)
-$lblArchive.Location = New-Object System.Drawing.Point(10, 215)
+$lblArchive.Location = New-Object System.Drawing.Point(10, 245)
 $page0.Controls.Add($lblArchive)
 
 $txtArchivePath = New-Object System.Windows.Forms.TextBox
 $txtArchivePath.Size = New-Object System.Drawing.Size(640, 20)
-$txtArchivePath.Location = New-Object System.Drawing.Point(320, 215)
+$txtArchivePath.Location = New-Object System.Drawing.Point(320, 245)
 $page0.Controls.Add($txtArchivePath)
 
 $btnBrowseArchive = New-Object System.Windows.Forms.Button
 $btnBrowseArchive.Text = 'Browse...'
 $btnBrowseArchive.Size = New-Object System.Drawing.Size(100, 23)
-$btnBrowseArchive.Location = New-Object System.Drawing.Point(810, 213)
+$btnBrowseArchive.Location = New-Object System.Drawing.Point(810, 243)
 $btnBrowseArchive.Add_Click({
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
     $dlg.Filter = '7z archive (*.7z)|*.7z'
@@ -389,6 +403,7 @@ function Resolve-RepoPage {
         $source = if ($rbFork.Checked) { 'Fork' } elseif ($rbUpstream.Checked) { 'Upstream' } else { 'Other' }
         $url = Get-RepositoryUrl -Choice $source -CustomUrl $txtOtherUrl.Text.Trim()
         $script:RepoDir = $txtRepoDir.Text.Trim()
+        $branch = if ([string]::IsNullOrWhiteSpace($txtBranch.Text)) { 'master' } else { $txtBranch.Text.Trim() }
 
         # Pre-initialise step commands so the wizard can proceed after clone.
         $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$false
@@ -397,12 +412,12 @@ function Resolve-RepoPage {
         $btnNext.Enabled = $false
         $btnCancel.Enabled = $false
 
-        $cloneArgs = @('clone', '--depth', '1', '--branch', $script:DefaultBranch, $url, $script:RepoDir) -join ' '
+        $cloneArgs = @('clone', '--depth', '1', '--branch', $branch, $url, $script:RepoDir) -join ' '
         $cloneStep = @{
             Name      = 'Clone'
             FileName  = 'git.exe'
             Arguments = $cloneArgs
-            LogHint   = "Cloning $url into $script:RepoDir..."
+            LogHint   = "Cloning $url (branch $branch) into $script:RepoDir..."
         }
         Start-LoggedProcess $cloneStep
         # Switch to build page after clone completes; do not advance immediately.

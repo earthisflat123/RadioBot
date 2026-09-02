@@ -27,6 +27,7 @@
 param(
     [string]$RepoDir = 'C:\RadioBot',
     [string]$RepoUrl = '',
+    [string]$Branch = 'master',
     [switch]$Console
 )
 
@@ -50,24 +51,32 @@ function Test-Git {
     return [bool](Get-Command git -ErrorAction SilentlyContinue)
 }
 
-function Clone-WithGit($Url, $Path) {
-    New-Item -ItemType Directory -Force -Path (Split-Path $Path) | Out-Null
+function Clone-WithGit($Url, $Path, $Branch) {
+    $parent = Split-Path $Path -Parent
+    if ($parent -and (-not (Test-Path $parent))) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
     if (Test-Path "$Path\.git") {
         Write-Log "Updating existing clone at $Path..."
-        & git -C $Path fetch --depth 1 origin $DefaultBranch
-        & git -C $Path reset --hard "origin/$DefaultBranch"
+        & git -C $Path fetch --depth 1 origin $Branch
+        & git -C $Path reset --hard "origin/$Branch"
     } else {
-        Write-Log "Cloning $Url into $Path..."
-        & git clone --depth 1 --branch $DefaultBranch $Url $Path
+        Write-Log "Cloning $Url (branch $Branch) into $Path..."
+        & git clone --depth 1 --branch $Branch $Url $Path
     }
     if ($LASTEXITCODE -ne 0) { throw "git clone/update failed" }
 }
 
-function Clone-WithZip($Url, $Path) {
+function Clone-WithZip($Url, $Path, $Branch) {
+    $parent = Split-Path $Path -Parent
+    if ($parent -and (-not (Test-Path $parent))) {
+        New-Item -ItemType Directory -Force -Path $parent | Out-Null
+    }
+
     # Public GitHub zip fallback when git is not installed.
     $base = $Url -replace '\.git$','' -replace '/$',''
-    $zipUrl = "$base/archive/refs/heads/$DefaultBranch.zip"
-    $zipFile = Join-Path $env:TEMP 'radiobot-master.zip'
+    $zipUrl = "$base/archive/refs/heads/$Branch.zip"
+    $zipFile = Join-Path $env:TEMP "radiobot-$Branch.zip"
 
     Write-Log "Git not found; downloading $zipUrl..."
     Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing
@@ -92,7 +101,7 @@ if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text = 'RadioBot Setup Launcher'
-    $form.Size = New-Object System.Drawing.Size(600, 280)
+    $form.Size = New-Object System.Drawing.Size(600, 320)
     $form.StartPosition = 'CenterScreen'
     $form.FormBorderStyle = 'FixedDialog'
     $form.MaximizeBox = $false
@@ -146,9 +155,21 @@ if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
     })
     $form.Controls.Add($btnBrowse)
 
+    $lblBranch = New-Object System.Windows.Forms.Label
+    $lblBranch.Text = 'Branch:'
+    $lblBranch.Location = New-Object System.Drawing.Point(20, 135)
+    $lblBranch.Size = New-Object System.Drawing.Size(80, 20)
+    $form.Controls.Add($lblBranch)
+
+    $txtBranch = New-Object System.Windows.Forms.TextBox
+    $txtBranch.Text = $Branch
+    $txtBranch.Size = New-Object System.Drawing.Size(490, 20)
+    $txtBranch.Location = New-Object System.Drawing.Point(110, 135)
+    $form.Controls.Add($txtBranch)
+
     $chkConsole = New-Object System.Windows.Forms.CheckBox
     $chkConsole.Text = 'Use console wizard instead of GUI'
-    $chkConsole.Location = New-Object System.Drawing.Point(20, 140)
+    $chkConsole.Location = New-Object System.Drawing.Point(20, 165)
     $chkConsole.Size = New-Object System.Drawing.Size(300, 20)
     $form.Controls.Add($chkConsole)
 
@@ -161,6 +182,7 @@ if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
         elseif ($rbUpstream.Checked) { $script:RepoUrl = $DefaultUpstream }
         else { $script:RepoUrl = $txtOther.Text.Trim() }
         $script:RepoDir = $txtPath.Text.Trim()
+        $script:Branch = $txtBranch.Text.Trim()
         $script:UseConsole = $chkConsole.Checked
         $form.Close()
     })
@@ -181,9 +203,9 @@ if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
 }
 
 if (Test-Git) {
-    Clone-WithGit -Url $RepoUrl -Path $RepoDir
+    Clone-WithGit -Url $RepoUrl -Path $RepoDir -Branch $script:Branch
 } else {
-    Clone-WithZip -Url $RepoUrl -Path $RepoDir
+    Clone-WithZip -Url $RepoUrl -Path $RepoDir -Branch $script:Branch
 }
 
 $target = if ($Console -or $script:UseConsole) {
@@ -193,4 +215,4 @@ $target = if ($Console -or $script:UseConsole) {
 }
 
 Write-Log "Launching $target ..."
-& powershell.exe -ExecutionPolicy Bypass -NoProfile -File $target -RepoDir $RepoDir
+& powershell.exe -ExecutionPolicy Bypass -NoProfile -File $target -RepoDir $RepoDir -Branch $script:Branch

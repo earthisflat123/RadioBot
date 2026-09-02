@@ -19,7 +19,8 @@
 #>
 
 param(
-    [string]$RepoDir = ""
+    [string]$RepoDir = "",
+    [string]$Branch = "master"
 )
 
 $ErrorActionPreference = "Stop"
@@ -78,11 +79,12 @@ if ([string]::IsNullOrWhiteSpace($RepoDir)) {
         $RepoDir = Read-ClonePath
         $url = Get-RepositoryUrl -Choice $source -CustomUrl $CustomUrl
 
+        $branch = if ([string]::IsNullOrWhiteSpace($Branch)) { 'master' } else { $Branch }
         if (Test-GitAvailable) {
-            Start-RepoClone -Url $url -RepoDir $RepoDir
+            Start-RepoClone -Url $url -RepoDir $RepoDir -Branch $branch
         } else {
             Write-BuildLog "Git not found; downloading repository as a ZIP archive."
-            Expand-RepoFromZip -Url $url -RepoDir $RepoDir
+            Expand-RepoFromZip -Url $url -RepoDir $RepoDir -Branch $branch
         }
     } else {
         $RepoDir = Read-ClonePath
