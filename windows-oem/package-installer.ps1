@@ -168,10 +168,12 @@ if (Test-Path $ClientPem)  { Copy-Item $ClientPem  $PayloadDir -Force }
 $SrcIcon = "$RepoDir\client\ca.ico"
 if (Test-Path $SrcIcon) { Copy-Item $SrcIcon "$PayloadDir\shoutirc.ico" -Force }
 
-# 6. Copy the NSIS source to C:\OEM.
+# 6. Copy the NSIS source to C:\OEM (when OEM is not already the repo's windows-oem folder).
 New-Item -ItemType Directory -Force -Path $OEMDir | Out-Null
 $RepoOEM = "$RepoDir\windows-oem"
-if (Test-Path "$RepoOEM\RadioBot.nsi") { Copy-Item "$RepoOEM\RadioBot.nsi" $OEMDir -Force }
+if ((Test-Path "$RepoOEM\RadioBot.nsi") -and ($RepoOEM -ne $OEMDir)) {
+    Copy-Item "$RepoOEM\RadioBot.nsi" $OEMDir -Force
+}
 
 # 7. Ensure the output directory exists.
 New-Item -ItemType Directory -Force -Path (Split-Path $OutFile -Parent) | Out-Null

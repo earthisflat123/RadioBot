@@ -1,0 +1,196 @@
+#Requires -Version 5.1
+#Requires -RunAsAdministrator
+
+<#
+.SYNOPSIS
+    Standalone RadioBot Windows setup launcher.
+
+.DESCRIPTION
+    This script can be run before the RadioBot repository is cloned. It asks for
+    a repository (upstream, fork, or custom URL), clones it, and then launches
+    the in-repo native build wizard or console.
+
+.PARAMETER RepoDir
+    Folder to clone into. Default is C:\RadioBot.
+
+.PARAMETER RepoUrl
+    Git URL to clone. If omitted, the default earthisflat123 fork is used.
+
+.PARAMETER Console
+    Launch the console wizard instead of the WinForms GUI.
+
+.EXAMPLE
+    .\RadioBot-Windows-Setup.ps1
+    .\RadioBot-Windows-Setup.ps1 -RepoDir D:\RadioBot -RepoUrl https://github.com/DriftSolutions/RadioBot.git -Console
+#>
+
+param(
+    [string]$RepoDir = 'C:\RadioBot',
+    [string]$RepoUrl = '',
+    [switch]$Console
+)
+
+$ErrorActionPreference = 'Stop'
+
+if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)) {
+    throw 'This script must be run as Administrator.'
+}
+
+$DefaultFork = 'https://github.com/earthisflat123/RadioBot.git'
+$DefaultUpstream = 'https://github.com/DriftSolutions/RadioBot.git'
+$DefaultBranch = 'master'
+
+function Write-Log($Message) {
+    $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $line = "$ts $Message"
+    Write-Host $line
+}
+
+function Test-Git {
+    return [bool](Get-Command git -ErrorAction SilentlyContinue)
+}
+
+function Clone-WithGit($Url, $Path) {
+    New-Item -ItemType Directory -Force -Path (Split-Path $Path) | Out-Null
+    if (Test-Path "$Path\.git") {
+        Write-Log "Updating existing clone at $Path..."
+        & git -C $Path fetch --depth 1 origin $DefaultBranch
+        & git -C $Path reset --hard "origin/$DefaultBranch"
+    } else {
+        Write-Log "Cloning $Url into $Path..."
+        & git clone --depth 1 --branch $DefaultBranch $Url $Path
+    }
+    if ($LASTEXITCODE -ne 0) { throw "git clone/update failed" }
+}
+
+function Clone-WithZip($Url, $Path) {
+    # Public GitHub zip fallback when git is not installed.
+    $base = $Url -replace '\.git$','' -replace '/$',''
+    $zipUrl = "$base/archive/refs/heads/$DefaultBranch.zip"
+    $zipFile = Join-Path $env:TEMP 'radiobot-master.zip'
+
+    Write-Log "Git not found; downloading $zipUrl..."
+    Invoke-WebRequest -Uri $zipUrl -OutFile $zipFile -UseBasicParsing
+
+    $extractRoot = Join-Path $env:TEMP 'radiobot-zip-extract'
+    if (Test-Path $extractRoot) { Remove-Item $extractRoot -Recurse -Force }
+    Expand-Archive -Path $zipFile -DestinationPath $extractRoot -Force
+
+    $unpacked = Get-ChildItem -Path $extractRoot -Directory | Select-Object -First 1
+    if (-not $unpacked) { throw 'No directory found after extracting archive.' }
+
+    if (Test-Path $Path) { Remove-Item $Path -Recurse -Force }
+    Move-Item $unpacked.FullName $Path
+    Remove-Item $zipFile -Force
+    Remove-Item $extractRoot -Force
+    Write-Log "Extracted to $Path"
+}
+
+if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
+    Add-Type -AssemblyName System.Windows.Forms
+    Add-Type -AssemblyName System.Drawing
+
+    $form = New-Object System.Windows.Forms.Form
+    $form.Text = 'RadioBot Setup Launcher'
+    $form.Size = New-Object System.Drawing.Size(600, 280)
+    $form.StartPosition = 'CenterScreen'
+    $form.FormBorderStyle = 'FixedDialog'
+    $form.MaximizeBox = $false
+
+    $rbFork = New-Object System.Windows.Forms.RadioButton
+    $rbFork.Text = 'earthisflat123/RadioBot (recommended)'
+    $rbFork.Location = New-Object System.Drawing.Point(20, 20)
+    $rbFork.Size = New-Object System.Drawing.Size(500, 20)
+    $rbFork.Checked = $true
+    $form.Controls.Add($rbFork)
+
+    $rbUpstream = New-Object System.Windows.Forms.RadioButton
+    $rbUpstream.Text = 'DriftSolutions/RadioBot (upstream)'
+    $rbUpstream.Location = New-Object System.Drawing.Point(20, 45)
+    $rbUpstream.Size = New-Object System.Drawing.Size(500, 20)
+    $form.Controls.Add($rbUpstream)
+
+    $rbOther = New-Object System.Windows.Forms.RadioButton
+    $rbOther.Text = 'Other:'
+    $rbOther.Location = New-Object System.Drawing.Point(20, 70)
+    $rbOther.Size = New-Object System.Drawing.Size(80, 20)
+    $form.Controls.Add($rbOther)
+
+    $txtOther = New-Object System.Windows.Forms.TextBox
+    $txtOther.Size = New-Object System.Drawing.Size(460, 20)
+    $txtOther.Location = New-Object System.Drawing.Point(110, 70)
+    $txtOther.Enabled = $false
+    $form.Controls.Add($txtOther)
+    $rbOther.Add_CheckedChanged({ $txtOther.Enabled = $rbOther.Checked })
+
+    $lblPath = New-Object System.Windows.Forms.Label
+    $lblPath.Text = 'Clone to:'
+    $lblPath.Location = New-Object System.Drawing.Point(20, 105)
+    $lblPath.Size = New-Object System.Drawing.Size(80, 20)
+    $form.Controls.Add($lblPath)
+
+    $txtPath = New-Object System.Windows.Forms.TextBox
+    $txtPath.Text = $RepoDir
+    $txtPath.Size = New-Object System.Drawing.Size(390, 20)
+    $txtPath.Location = New-Object System.Drawing.Point(110, 105)
+    $form.Controls.Add($txtPath)
+
+    $btnBrowse = New-Object System.Windows.Forms.Button
+    $btnBrowse.Text = 'Browse...'
+    $btnBrowse.Location = New-Object System.Drawing.Point(505, 103)
+    $btnBrowse.Size = New-Object System.Drawing.Size(90, 23)
+    $btnBrowse.Add_Click({
+        $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
+        $dlg.Description = 'Select the folder to clone RadioBot into'
+        if ($dlg.ShowDialog() -eq 'OK') { $txtPath.Text = $dlg.SelectedPath }
+    })
+    $form.Controls.Add($btnBrowse)
+
+    $chkConsole = New-Object System.Windows.Forms.CheckBox
+    $chkConsole.Text = 'Use console wizard instead of GUI'
+    $chkConsole.Location = New-Object System.Drawing.Point(20, 140)
+    $chkConsole.Size = New-Object System.Drawing.Size(300, 20)
+    $form.Controls.Add($chkConsole)
+
+    $btnOK = New-Object System.Windows.Forms.Button
+    $btnOK.Text = 'OK'
+    $btnOK.Size = New-Object System.Drawing.Size(100, 30)
+    $btnOK.Location = New-Object System.Drawing.Point(380, 200)
+    $btnOK.Add_Click({
+        if ($rbFork.Checked) { $script:RepoUrl = $DefaultFork }
+        elseif ($rbUpstream.Checked) { $script:RepoUrl = $DefaultUpstream }
+        else { $script:RepoUrl = $txtOther.Text.Trim() }
+        $script:RepoDir = $txtPath.Text.Trim()
+        $script:UseConsole = $chkConsole.Checked
+        $form.Close()
+    })
+    $form.Controls.Add($btnOK)
+
+    $btnCancel = New-Object System.Windows.Forms.Button
+    $btnCancel.Text = 'Cancel'
+    $btnCancel.Size = New-Object System.Drawing.Size(100, 30)
+    $btnCancel.Location = New-Object System.Drawing.Point(490, 200)
+    $btnCancel.Add_Click({ $form.Close(); exit 0 })
+    $form.Controls.Add($btnCancel)
+
+    $form.ShowDialog() | Out-Null
+}
+
+if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
+    $RepoUrl = $DefaultFork
+}
+
+if (Test-Git) {
+    Clone-WithGit -Url $RepoUrl -Path $RepoDir
+} else {
+    Clone-WithZip -Url $RepoUrl -Path $RepoDir
+}
+
+$target = if ($Console -or $script:UseConsole) {
+    Join-Path $RepoDir 'build-windows-native-console.ps1'
+} else {
+    Join-Path $RepoDir 'build-windows-native-wizard.ps1'
+}
+
+Write-Log "Launching $target ..."
+& powershell.exe -ExecutionPolicy Bypass -NoProfile -File $target -RepoDir $RepoDir
