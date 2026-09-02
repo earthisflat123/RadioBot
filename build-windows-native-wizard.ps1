@@ -472,8 +472,10 @@ function Switch-Page {
             $logBox.Location = New-Object System.Drawing.Point(15, 315)
         }
 
-        $lblProgress.Location = New-Object System.Drawing.Point(15, $logBox.Bottom + 10)
-        $progress.Location = New-Object System.Drawing.Point(15, $lblProgress.Bottom + 5)
+        $lblProgressTop = $logBox.Bottom + 10
+        $lblProgress.Location = New-Object System.Drawing.Point(15, $lblProgressTop)
+        $progressTop = $lblProgress.Bottom + 5
+        $progress.Location = New-Object System.Drawing.Point(15, $progressTop)
 
         # Hide the progress controls while no step is running; Start-LoggedProcess
         # will re-show them when the next step starts.
