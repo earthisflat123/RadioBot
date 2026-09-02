@@ -192,10 +192,19 @@ if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
     $btnCancel.Text = 'Cancel'
     $btnCancel.Size = New-Object System.Drawing.Size(100, 30)
     $btnCancel.Location = New-Object System.Drawing.Point(490, 200)
-    $btnCancel.Add_Click({ $form.Close(); exit 0 })
+    $btnCancel.Add_Click({
+        $script:Cancelled = $true
+        $form.Close()
+    })
     $form.Controls.Add($btnCancel)
 
+    $script:Cancelled = $false
     $form.ShowDialog() | Out-Null
+
+    if ($script:Cancelled) {
+        Write-Log 'Setup cancelled by user.'
+        exit 0
+    }
 }
 
 if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
