@@ -59,6 +59,7 @@ function Write-WizardError($Message) {
 })
 
 $script:CurrentStep = 0
+$script:StepRunId = 0
 $script:StepCommands = $null
 $script:RepoDir = $RepoDir
 $script:Branch = $Branch
@@ -107,6 +108,21 @@ $logBox.Size = New-Object System.Drawing.Size(860, 200)
 $logBox.Location = New-Object System.Drawing.Point(15, 335)
 $logBox.Font = New-Object System.Drawing.Font('Consolas', 9)
 $form.Controls.Add($logBox)
+
+# Pending log lines are collected on the process event threads and flushed
+# by a UI timer so the log box is updated on the correct thread.
+$script:PendingLogLines = [System.Collections.Generic.List[string]]::new()
+
+$logTimer = New-Object System.Windows.Forms.Timer
+$logTimer.Interval = 100
+$logTimer.Add_Tick({
+    if ($script:PendingLogLines.Count -gt 0) {
+        $lines = $script:PendingLogLines.ToArray()
+        $script:PendingLogLines.Clear()
+        foreach ($line in $lines) { Append-Log $line }
+    }
+})
+$logTimer.Start()
 
 $header = New-Object System.Windows.Forms.Label
 $header.Text = 'Welcome to the RadioBot native build wizard'
@@ -352,9 +368,20 @@ function Append-Log {
     param([string]$Line)
     if ($logBox.IsDisposed -or $form.IsDisposed -or -not $form.IsHandleCreated) { return }
     try {
-        $logBox.Invoke([Action]{ if (-not $logBox.IsDisposed) { $logBox.AppendText("$Line`r`n") } })
+        $action = [Action]{ if (-not $logBox.IsDisposed) { $logBox.AppendText("$Line`r`n") } }
+        if ($logBox.InvokeRequired) {
+            $logBox.Invoke($action)
+        } else {
+            $action.Invoke()
+        }
     } catch {
         Write-WizardError "Append-Log error: $($_.Exception.Message)"
+    }
+}
+
+function Add-PendingLog($Line) {
+    if (-not [string]::IsNullOrWhiteSpace($Line)) {
+        [void]$script:PendingLogLines.Add($Line)
     }
 }
 
@@ -371,6 +398,12 @@ function Start-LoggedProcess {
     Append-Log "=== Starting: $($Step.Name) ==="
     Append-Log $Step.LogHint
 
+    $script:StepRunId++
+    $script:CurrentOutSource = "Step-$($script:StepRunId)-Output"
+    $script:CurrentErrSource = "Step-$($script:StepRunId)-Error"
+    $outSource = $script:CurrentOutSource
+    $errSource = $script:CurrentErrSource
+
     $p = New-Object System.Diagnostics.Process
     $p.StartInfo.FileName = $Step.FileName
     $p.StartInfo.Arguments = $Step.Arguments
@@ -380,18 +413,30 @@ function Start-LoggedProcess {
     $p.StartInfo.CreateNoWindow = $true
     $p.EnableRaisingEvents = $true
 
-    $p.add_OutputDataReceived({
-        if ($EventArgs.Data) { Append-Log $EventArgs.Data }
-    })
-    $p.add_ErrorDataReceived({
-        if ($EventArgs.Data) { Append-Log $EventArgs.Data }
-    })
+    # Use Register-ObjectEvent for stdout/stderr.  Directly adding a
+    # DataReceivedEventHandler with a scriptblock does not work in Windows
+    # PowerShell 5.1 and silently terminates the wizard.
+    $null = Register-ObjectEvent -InputObject $p -EventName OutputDataReceived -SourceIdentifier $outSource -Action {
+        if ($EventArgs.Data) { Add-PendingLog $EventArgs.Data }
+    }
+    $null = Register-ObjectEvent -InputObject $p -EventName ErrorDataReceived -SourceIdentifier $errSource -Action {
+        if ($EventArgs.Data) { Add-PendingLog $EventArgs.Data }
+    }
+
     $p.add_Exited({
         # WinForms events run on a thread pool, so UI updates must be
         # marshalled back to the form's UI thread.
         [void]$form.BeginInvoke([Action]{
             try {
                 if ($form.IsDisposed -or -not $form.IsHandleCreated) { return }
+
+                $logTimer.Stop()
+                $lines = $script:PendingLogLines.ToArray()
+                $script:PendingLogLines.Clear()
+                foreach ($line in $lines) { Append-Log $line }
+
+                Unregister-Event -SourceIdentifier $script:CurrentOutSource -ErrorAction SilentlyContinue
+                Unregister-Event -SourceIdentifier $script:CurrentErrSource -ErrorAction SilentlyContinue
 
                 $progress.Visible = $false
                 $btnCancel.Enabled = $true
@@ -422,6 +467,7 @@ function Start-LoggedProcess {
                         Show-FinishPage
                     }
                 }
+                $logTimer.Start()
             } catch {
                 Write-WizardError "Exited handler error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
                 [System.Windows.Forms.MessageBox]::Show("Error in step handler: $($_.Exception.Message)", 'Error', 'OK', 'Error') | Out-Null
