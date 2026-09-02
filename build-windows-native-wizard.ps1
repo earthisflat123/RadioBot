@@ -442,7 +442,8 @@ function Switch-Page {
             $logBox.Size = New-Object System.Drawing.Size(860, 220)
             $logBox.Location = New-Object System.Drawing.Point(15, 315)
         }
-        $progress.Location = New-Object System.Drawing.Point(15, $logBox.Bottom + 10)
+        $progressTop = $logBox.Bottom + 10
+        $progress.Location = New-Object System.Drawing.Point(15, $progressTop)
     } catch {
         Write-WizardError "Switch-Page error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
         throw
