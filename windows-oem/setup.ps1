@@ -3,7 +3,9 @@
 param(
     [string]$RepoSrc = "",
     [string]$RepoDst = "C:\RadioBot",
-    [switch]$UseDepsArchive
+    [string]$OEM = "C:\OEM",
+    [switch]$UseDepsArchive,
+    [switch]$Native
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,7 +18,6 @@ $ProgressPreference = 'SilentlyContinue'
 # logon token. We keep the detailed log locally and the host can SSH in and
 # tail it, avoiding all Z: mapping issues.
 
-$OEM = "C:\OEM"
 $TempDir = "C:\Temp"
 $LogFile = "$TempDir\setup-radiobot.log"
 New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
@@ -141,6 +142,9 @@ function Find-AndMap-SharedDrive {
 # Resolve the host shared folder early. Everything else (source copy, vcpkg
 # manifest, and the log) depends on having a working share.
 if ([string]::IsNullOrEmpty($RepoSrc) -or -not (Test-Path $RepoSrc)) {
+    if ($Native) {
+        throw "Native build requires -RepoSrc to be set to the repo path."
+    }
     $found = Find-AndMap-SharedDrive
     if ($found) {
         $RepoSrc = $found
@@ -157,11 +161,15 @@ Write-Log "Using host shared source: $RepoSrc"
 # Enable headless access as early as possible so long-running installs can be
 # inspected/debugged from the host without waiting for setup to finish.
 Write-Log "=== Starting RadioBot Windows build environment setup ==="
-Write-Log "Enabling OpenSSH early..."
-Install-OpenSSHServer
-Add-HostSSHPublicKey -OemDir "C:\OEM"
-Write-Log "OpenSSH ready. The host can tail this log with:"
-Write-Log "  ssh -p 2222 -i ~/.ssh/radiobot_windows_builder builder@localhost powershell -Command 'Get-Content -Wait C:\Temp\setup-radiobot.log'"
+if (-not $Native) {
+    Write-Log "Enabling OpenSSH early..."
+    Install-OpenSSHServer
+    Add-HostSSHPublicKey -OemDir $OEM
+    Write-Log "OpenSSH ready. The host can tail this log with:"
+    Write-Log "  ssh -p 2222 -i ~/.ssh/radiobot_windows_builder builder@localhost powershell -Command 'Get-Content -Wait C:\Temp\setup-radiobot.log'"
+} else {
+    Write-Log "Native build mode: skipping OpenSSH server setup."
+}
 
 function Invoke-WithRetry {
     param([scriptblock]$Command, [int]$MaxAttempts = 3)
@@ -237,7 +245,6 @@ if (-not (Test-Path $VsMsBuild)) { throw "Timed out waiting for Visual Studio Bu
 Write-Log "Visual Studio Build Tools installed."
 
 # Common paths used by both dependency modes
-$OEM = "C:\OEM"
 $deps = "C:\deps"
 
 # 4-7. vcpkg + dependencies (fresh) or restore from archive (opt-in)
@@ -279,17 +286,25 @@ function Find-DependencyArchive() {
 }
 
 # Copy the RadioBot source into a local directory before running vcpkg so the
-# build does not depend on the sometimes-flaky Samba mapped drive.
+# build does not depend on the sometimes-flaky Samba mapped drive. In native
+# mode the source is already local, so we skip the copy and just stage the
+# pristine solution.
 if (Test-Path $RepoSrc) {
-    Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
-    New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
-    & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
-        /XD "windows-storage" "windows-oem" ".git" "vcpkg-cache" "artifacts" ".worktree" `
-        /Z /MT:4 /R:3 /W:5 /NDL /NFL
-    Write-Log "Source copied."
+    $src = $RepoSrc.TrimEnd('\')
+    $dst = $RepoDst.TrimEnd('\')
+    if ($src -ne $dst) {
+        Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
+        New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
+        & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
+            /XD "windows-storage" "windows-oem" ".git" "vcpkg-cache" "artifacts" ".worktree" `
+            /Z /MT:4 /R:3 /W:5 /NDL /NFL
+        Write-Log "Source copied."
+    } else {
+        Write-Log "Source already at destination ($RepoSrc), skipping copy."
+    }
 
     # Save a pristine copy of the solution for the build script to prune.
-    $Sln = "$RepoDst\IRCBot\IRCBot.sln"
+    $Sln = "$dst\IRCBot\IRCBot.sln"
     if (Test-Path $Sln) {
         Copy-Item $Sln "$OEM\IRCBot.sln.orig" -Force
         Write-Log "Saved pristine IRCBot.sln to $OEM\IRCBot.sln.orig."

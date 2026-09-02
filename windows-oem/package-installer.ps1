@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$OutFile = ""
+    [string]$OutFile = "",
+    [string]$RepoDir = "C:\RadioBot",
+    [string]$OEM = "C:\OEM"
 )
 
 #Requires -Version 5.1
@@ -31,11 +33,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$RepoDir      = "C:\RadioBot"
 $OutputDir    = "$RepoDir\v5\Output"
 $PayloadDir   = "$RepoDir\payload-official"
 $LocalInstall = "$RepoDir\official-installer.exe"
-$OEMDir       = "C:\OEM"
+$OEMDir       = $OEM
 $NsisFile     = "$OEMDir\RadioBot.nsi"
 $SevenZip     = "C:\Program Files\7-Zip\7z.exe"
 $MakeNsis     = "C:\Program Files (x86)\NSIS\makensis.exe"
