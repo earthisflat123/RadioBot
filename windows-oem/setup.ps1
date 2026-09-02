@@ -331,7 +331,8 @@ if ($UseDepsArchive) {
         # Fall back to the 7-Zip install that Chocolatey just put on the PATH
         $SevenZip = "7z"
     }
-    & $SevenZip x $ArchivePath -oC:\ -y
+    # Suppress 7-Zip's verbose file list; keep errors visible on stderr.
+    & $SevenZip x $ArchivePath -oC:\ -y -bso0 -bsp0
     if ($LASTEXITCODE -ne 0) { throw "Dependency archive extraction failed with exit code $LASTEXITCODE." }
     if (-not (Test-Path $vcpkgDir)) {
         throw "vcpkg directory not found after archive extraction."
