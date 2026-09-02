@@ -163,15 +163,15 @@ $btnBrowse.Add_Click({
 $page0.Controls.Add($btnBrowse)
 
 $lblBranch = New-Object System.Windows.Forms.Label
-$lblBranch.Text = 'Branch to clone (leave as master if unsure):'
-$lblBranch.Size = New-Object System.Drawing.Size(260, 20)
+$lblBranch.Text = 'Branch to clone:'
+$lblBranch.Size = New-Object System.Drawing.Size(150, 20)
 $lblBranch.Location = New-Object System.Drawing.Point(10, 182)
 $page0.Controls.Add($lblBranch)
 
 $txtBranch = New-Object System.Windows.Forms.TextBox
 $txtBranch.Text = $script:Branch
-$txtBranch.Size = New-Object System.Drawing.Size(580, 20)
-$txtBranch.Location = New-Object System.Drawing.Point(280, 182)
+$txtBranch.Size = New-Object System.Drawing.Size(680, 20)
+$txtBranch.Location = New-Object System.Drawing.Point(170, 182)
 $page0.Controls.Add($txtBranch)
 
 $chkUseArchive = New-Object System.Windows.Forms.CheckBox
