@@ -285,7 +285,10 @@ $form.Controls.Add($page4)
 
 function Switch-Page {
     param([int]$Index)
-    for ($i = 0; $i -lt $pages.Count; $i++) { $pages[$i].Visible = ($i -eq $Index) }
+    # $page1 is reused for steps 1-3; $page4 is the finish page.
+    $page0.Visible = ($Index -eq 0)
+    $page1.Visible = ($Index -in 1,2,3)
+    $page4.Visible = ($Index -eq 4)
     $script:CurrentStep = $Index
     $btnBack.Enabled = ($Index -gt 0 -and $Index -lt 4)
 
