@@ -237,6 +237,24 @@ $logTimer.Add_Tick({
                     }
 
                     $current = $script:CurrentStep
+
+                    # After a successful clone/pull, re-evaluate the dependency
+                    # archive option against the now-populated repo directory.
+                    if ($current -eq 0) {
+                        $archivePath = $txtArchivePath.Text.Trim()
+                        if ([string]::IsNullOrWhiteSpace($archivePath)) {
+                            $archivePath = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
+                        }
+                        $script:UseDepsArchive = ($chkUseArchive.Checked -and (Test-Path $archivePath))
+                        if ($script:UseDepsArchive) {
+                            $dest = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
+                            if ($archivePath -ne $dest) {
+                                Copy-Item $archivePath $dest -Force
+                            }
+                        }
+                        $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$script:UseDepsArchive
+                    }
+
                     if ($current -lt 3) {
                         Switch-Page ($current + 1)
                     } else {
@@ -725,13 +743,31 @@ function Resolve-RepoPage {
             $btnNext.Enabled = $false
             $btnCancel.Enabled = $false
 
-            $cloneArgs = @('clone', '--depth', '1', '--branch', $branch, $url, $script:RepoDir)
-            $cloneStep = @{
-                Name         = 'Clone'
-                FileName     = 'git.exe'
-                Arguments    = $cloneArgs -join ' '
-                ArgumentList = $cloneArgs
-                LogHint      = "Cloning $url (branch $branch) into $script:RepoDir..."
+            if (Test-Path $script:RepoDir) {
+                if (Test-Path "$script:RepoDir\.git") {
+                    # Directory already contains a clone: fetch and hard-reset to
+                    # the requested branch instead of failing with "already exists".
+                    $gitCmd = "git -C `"$script:RepoDir`" fetch --depth 1 origin $branch && git -C `"$script:RepoDir`" checkout -f -B $branch origin/$branch"
+                    $cloneStep = @{
+                        Name         = 'Clone'
+                        FileName     = 'cmd.exe'
+                        Arguments    = "/c $gitCmd"
+                        ArgumentList = @('/c', $gitCmd)
+                        LogHint      = "Updating existing clone at $script:RepoDir to branch $branch..."
+                    }
+                } else {
+                    [System.Windows.Forms.MessageBox]::Show("$script:RepoDir already exists and is not a git repository. Remove it or choose a different path.", 'Error', 'OK', 'Error') | Out-Null
+                    return $false
+                }
+            } else {
+                $cloneArgs = @('clone', '--depth', '1', '--branch', $branch, $url, $script:RepoDir)
+                $cloneStep = @{
+                    Name         = 'Clone'
+                    FileName     = 'git.exe'
+                    Arguments    = $cloneArgs -join ' '
+                    ArgumentList = $cloneArgs
+                    LogHint      = "Cloning $url (branch $branch) into $script:RepoDir..."
+                }
             }
             Start-LoggedProcess $cloneStep
             # Switch to build page after clone completes; do not advance immediately.
