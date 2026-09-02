@@ -78,6 +78,11 @@ try {
     )
     & $OEM\sln-prune.ps1 -Projects $RemoveProjects
 
+    # Report total build units to the wizard. The solution has been pruned; the
+    # add_checksum and ConfigWizard projects are built separately.
+    $BuildProgressTotal = (Get-Content $Sln | Select-String '^Project\(').Count + 2
+    Write-Output "__PROGRESS_TOTAL__ $BuildProgressTotal"
+
     # 5. Generate the .pb.cc/.pb.h files expected by AutoDJ, Mumble, and the main exes.
     $Protoc = "$VcpkgRoot\..\x64-windows\tools\protobuf\protoc.exe"
     if (Test-Path $Protoc) {
@@ -194,6 +199,7 @@ try {
         & C:\Windows\System32\robocopy.exe $OutputDir $ArtifactDir /E /NDL /NFL /MT:4 /R:3 /W:5
     }
 
+    Write-Output "__PROGRESS_DONE__"
     Write-Host "Build complete. Artifacts are in $ArtifactDir"
 } finally {
     Stop-Transcript

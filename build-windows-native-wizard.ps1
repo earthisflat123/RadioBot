@@ -151,23 +151,42 @@ $logTimer.Add_Tick({
         # Drain available lines.
         if ($script:CurrentOutReader) {
             while ($null -ne ($line = $script:CurrentOutReader.ReadLine())) {
-                Append-Log $line
+                if (Process-LogLine $line) { Append-Log $line }
             }
         }
         if ($script:CurrentErrReader) {
             while ($null -ne ($line = $script:CurrentErrReader.ReadLine())) {
-                Append-Log "ERR: $line"
+                if (Process-LogLine $line) { Append-Log "ERR: $line" }
             }
         }
 
         # Update the progress bar and timing label while the step is running.
         if ($script:StepStopwatch -and $script:StepStopwatch.IsRunning) {
             $elapsed = $script:StepStopwatch.Elapsed
-            $pct = [int][Math]::Min(99, ($elapsed.TotalSeconds / $script:StepEstimateSeconds) * 100)
-            $etaSec = [Math]::Max(0, $script:StepEstimateSeconds - $elapsed.TotalSeconds)
-            $eta = [TimeSpan]::FromSeconds($etaSec)
-            $progress.Value = $pct
-            $lblProgress.Text = ("{0}: {1}% | Elapsed: {2:hh\:mm\:ss} | ETA: {3:hh\:mm\:ss}" -f $script:CurrentStepName, $pct, $elapsed, $eta)
+
+            if ($script:ProgressFromProcess -and $script:ProgressTotal -gt 0) {
+                $progress.Maximum = $script:ProgressTotal
+                $progress.Value   = [Math]::Min($script:ProgressCurrent, $script:ProgressTotal)
+                $pct = [int]([Math]::Min(1.0, $script:ProgressCurrent / $script:ProgressTotal) * 100)
+
+                # ETA based on the rate observed so far (elapsed / work done).
+                if ($script:ProgressCurrent -gt 0) {
+                    $ratePerItem = $elapsed.Ticks / $script:ProgressCurrent
+                    $remaining   = [Math]::Max(0, $script:ProgressTotal - $script:ProgressCurrent)
+                    $eta = [TimeSpan]::FromTicks([long]($ratePerItem * $remaining))
+                } else {
+                    $eta = [TimeSpan]::FromSeconds($script:StepEstimateSeconds)
+                }
+
+                $lblProgress.Text = ("{0}: {1}/{2} ({3}%) | Elapsed: {4:hh\:mm\:ss} | ETA: {5:hh\:mm\:ss}" -f $script:CurrentStepName, $script:ProgressCurrent, $script:ProgressTotal, $pct, $elapsed, $eta)
+            } else {
+                $pct = [int][Math]::Min(99, ($elapsed.TotalSeconds / $script:StepEstimateSeconds) * 100)
+                $etaSec = [Math]::Max(0, $script:StepEstimateSeconds - $elapsed.TotalSeconds)
+                $eta = [TimeSpan]::FromSeconds($etaSec)
+                $progress.Maximum = 100
+                $progress.Value = $pct
+                $lblProgress.Text = ("{0}: {1}% | Elapsed: {2:hh\:mm\:ss} | ETA: {3:hh\:mm\:ss}" -f $script:CurrentStepName, $pct, $elapsed, $eta)
+            }
         }
 
         if ($script:RunningProcess.WaitForExit(0)) {
@@ -177,10 +196,10 @@ $logTimer.Add_Tick({
             $script:CurrentExitReadCount++
             if ($script:CurrentExitReadCount -ge 5) {
                 if ($script:CurrentOutReader) {
-                    while ($null -ne ($line = $script:CurrentOutReader.ReadLine())) { Append-Log $line }
+                    while ($null -ne ($line = $script:CurrentOutReader.ReadLine())) { if (Process-LogLine $line) { Append-Log $line } }
                 }
                 if ($script:CurrentErrReader) {
-                    while ($null -ne ($line = $script:CurrentErrReader.ReadLine())) { Append-Log "ERR: $line" }
+                    while ($null -ne ($line = $script:CurrentErrReader.ReadLine())) { if (Process-LogLine $line) { Append-Log "ERR: $line" } }
                 }
 
                 if ($script:CurrentOutReader) { $script:CurrentOutReader.Close(); $script:CurrentOutReader = $null }
@@ -203,11 +222,20 @@ $logTimer.Add_Tick({
                     Append-Log "ERROR: '$stepName' failed with exit code $exitCode."
                     [System.Windows.Forms.MessageBox]::Show("'$stepName' failed. Check the log for details.", 'Error', 'OK', 'Error') | Out-Null
                 } else {
-                    $progress.Value = 100
                     $elapsed = if ($script:StepStopwatch) { $script:StepStopwatch.Elapsed } else { [TimeSpan]::Zero }
                     Append-Log ("=== '{0}' finished in {1:hh\:mm\:ss} ===" -f $stepName, $elapsed)
-                    $progress.Visible = $false
-                    $lblProgress.Visible = $false
+
+                    if ($script:ProgressFromProcess -and $script:ProgressTotal -gt 0) {
+                        $progress.Maximum = $script:ProgressTotal
+                        $progress.Value   = $script:ProgressTotal
+                        $pct = 100
+                        $lblProgress.Text = ("{0}: {1}/{2} ({3}%) | Elapsed: {4:hh\:mm\:ss} | Done" -f $stepName, $script:ProgressTotal, $script:ProgressTotal, $pct, $elapsed)
+                    } else {
+                        $progress.Maximum = 100
+                        $progress.Value = 100
+                        $lblProgress.Text = ("{0}: 100% | Elapsed: {1:hh\:mm\:ss} | Done" -f $stepName, $elapsed)
+                    }
+
                     $current = $script:CurrentStep
                     if ($current -lt 3) {
                         Switch-Page ($current + 1)
@@ -503,6 +531,52 @@ function Append-Log {
     }
 }
 
+function Process-LogLine {
+    param([string]$Line)
+    # Parse internal progress markers and well-known tool output so the
+    # progress bar can reflect actual work rather than just elapsed time.
+    if ($Line -match '^__PROGRESS__\s+(\d+)\s+(\d+)') {
+        $script:ProgressCurrent = [int]$matches[1]
+        $script:ProgressTotal   = [int]$matches[2]
+        $script:ProgressFromProcess = $true
+        return $false
+    }
+    if ($Line -match '^__PROGRESS_TOTAL__\s+(\d+)') {
+        $script:ProgressTotal = [int]$matches[1]
+        $script:ProgressFromProcess = $true
+        return $false
+    }
+    if ($Line -match '^__PROGRESS_DONE__') {
+        if ($script:ProgressTotal -gt 0) {
+            $script:ProgressCurrent = $script:ProgressTotal
+        }
+        $script:ProgressFromProcess = $true
+        return $false
+    }
+
+    # git clone reports percentage in its stderr, e.g. "Receiving objects:  42%"
+    if ($script:CurrentStepName -eq 'Clone' -and $Line -match 'Receiving objects:\s+(\d+)%') {
+        $script:ProgressCurrent = [int]$matches[1]
+        $script:ProgressTotal   = 100
+        $script:ProgressFromProcess = $true
+        return $true
+    }
+
+    # MSBuild emits "ProjectName.vcxproj -> OutputPath" when a project completes.
+    # We count unique project names so the bar reflects real build progress.
+    if ($script:CurrentStepName -eq 'Build' -and $Line -match '^(?:.*[\\/])?([^\\/]+)\.vcxproj\s+->') {
+        $proj = $matches[1].ToLowerInvariant()
+        if (-not $script:BuildProgressProjects.ContainsKey($proj)) {
+            $script:BuildProgressProjects[$proj] = $true
+            $script:ProgressCurrent++
+            $script:ProgressFromProcess = $true
+        }
+        return $true
+    }
+
+    return $true
+}
+
 # C# helper that can be attached as a real DataReceivedEventHandler. Windows
 # PowerShell 5.1 cannot attach a scriptblock directly, so the handler writes
 # each line to a shared file that the UI timer tails.
@@ -564,6 +638,10 @@ function Start-LoggedProcess {
         'Package' { 120 }
         default   { 60 }
     }
+    $script:ProgressFromProcess = $false
+    $script:ProgressTotal       = 0
+    $script:ProgressCurrent     = 0
+    $script:BuildProgressProjects = @{}
     $progress.Value = 0
     $eta = [TimeSpan]::FromSeconds($script:StepEstimateSeconds)
     $lblProgress.Text = ("{0}: 0% | Elapsed: 00:00:00 | ETA: {1:hh\:mm\:ss}" -f $Step.Name, $eta)

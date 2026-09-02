@@ -68,6 +68,8 @@ if ([string]::IsNullOrWhiteSpace($OutFile)) {
 }
 
 # 3. Ensure NSIS is installed.
+Write-Output "__PROGRESS_TOTAL__ 4"
+
 if (-not (Test-Path $MakeNsis)) {
     Write-Log "NSIS not found, installing via Chocolatey..."
     $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
@@ -129,6 +131,7 @@ Write-Log "Extracted $extracted files to payload directory."
 Remove-Item -LiteralPath "$PayloadDir\`$PLUGINSDIR" -Recurse -Force -ErrorAction SilentlyContinue
 $afterRemove = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
 Write-Log "After removing `$PLUGINSDIR: $afterRemove files."
+Write-Output "__PROGRESS__ 1 4"
 
 # 3. Overlay the new build output on top of the payload. This preserves all the
 #    official extra files (langsrc, trivia, sam_scripts, DJ Package, .pal files,
@@ -140,6 +143,7 @@ Write-Log "Payload contains $beforeOverlay files before overlay."
 $afterOverlay = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
 Write-Log "Payload contains $afterOverlay files after overlay."
 if ($LASTEXITCODE -ge 8) { throw "robocopy overlay failed" }
+Write-Output "__PROGRESS__ 2 4"
 
 # 3b. Remove only the temporary NSIS plugin directory that 7-Zip extracts from
 #     the official installer. All official extra files (DJ Package, language
@@ -184,6 +188,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path $OutFile -Parent) | Out-Nu
 Write-Log "Building installer with makensis..."
 & $MakeNsis "/DPAYLOADDIR=$PayloadDir" "/DOUTFILE=$OutFile" $NsisFile
 if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+Write-Output "__PROGRESS__ 3 4"
 
 if (Test-Path $OutFile) {
     Write-Log "Installer built: $OutFile"
@@ -207,3 +212,5 @@ if ($HostInstall -and (Test-Path $InstallerSrc) -and (-not (Test-Path $HostInsta
     Copy-Item $InstallerSrc $HostInstall -Force
     Write-Log "Cached official installer on host shared drive: $HostInstall"
 }
+
+Write-Output "__PROGRESS_DONE__"

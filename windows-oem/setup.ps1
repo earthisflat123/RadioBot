@@ -29,6 +29,16 @@ function Write-Log($Message) {
     [System.IO.File]::AppendAllText($LogFile, "$line`r`n")
 }
 
+# Track setup progress for the wizard. Milestones are reported as they are
+# reached; skipped steps are simply not counted.
+$SetupProgressTotal = 8
+$SetupProgressCurrent = 0
+function Write-SetupProgress {
+    $script:SetupProgressCurrent++
+    Write-Output "__PROGRESS__ $script:SetupProgressCurrent $script:SetupProgressTotal"
+}
+Write-Output "__PROGRESS_TOTAL__ $SetupProgressTotal"
+
 function Install-OpenSSHServer() {
     try {
         $cap = Get-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
@@ -208,10 +218,12 @@ if (-not (Test-Path $choco)) {
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
     $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
 }
+Write-SetupProgress
 
 # 2. Core build tools
 Write-Log "Installing git, 7-Zip, CMake, Python..."
 & $choco install -y git 7zip cmake python3 --no-progress
+Write-SetupProgress
 
 # 3. Visual Studio Build Tools 2022 (v143 toolset)
 Write-Log "Downloading Visual Studio Build Tools..."
@@ -243,6 +255,7 @@ while (-not (Test-Path $VsMsBuild) -and $elapsed -lt $maxWait) {
 }
 if (-not (Test-Path $VsMsBuild)) { throw "Timed out waiting for Visual Studio Build Tools to install." }
 Write-Log "Visual Studio Build Tools installed."
+Write-SetupProgress
 
 # Common paths used by both dependency modes
 $deps = "C:\deps"
@@ -302,6 +315,7 @@ if (Test-Path $RepoSrc) {
     } else {
         Write-Log "Source already at destination ($RepoSrc), skipping copy."
     }
+    Write-SetupProgress
 
     # Save a pristine copy of the solution for the build script to prune.
     $Sln = "$dst\IRCBot\IRCBot.sln"
@@ -344,6 +358,7 @@ if ($UseDepsArchive) {
         throw "vcpkg installed tree not found after archive extraction."
     }
     Write-Log "Dependency archive restored."
+    Write-SetupProgress
 } else {
     # 4. vcpkg
     if (-not (Test-Path $vcpkgDir)) {
@@ -425,11 +440,13 @@ if ($UseDepsArchive) {
     } else {
         Write-Log "DSL build script not found at $OEM\build-dsl.ps1 - DSL will need to be built manually."
     }
+    Write-SetupProgress
 
     # 7. OpenSSL is provided by the vcpkg manifest and staged into C:\deps
     # above. The separate slproweb.com installer is no longer reliable (404),
     # so we rely on the vcpkg port.
     Write-Log "OpenSSL will be provided by vcpkg (staged to C:\deps)."
+    Write-SetupProgress
 }
 
 # 8. Build libfaac and libspopc from source. These libraries are not in vcpkg,
@@ -450,6 +467,7 @@ if (Test-Path "$OEM\build-libfaac.ps1") {
 } else {
     Write-Log "libfaac build script not found at $OEM\build-libfaac.ps1 - will be built during RadioBot build."
 }
+Write-SetupProgress
 
 if (Test-Path "$OEM\build-libspopc.ps1") {
     if (-not (Test-Path "C:\deps\lib\libspopc.lib")) {
@@ -466,9 +484,11 @@ if (Test-Path "$OEM\build-libspopc.ps1") {
 } else {
     Write-Log "libspopc build script not found at $OEM\build-libspopc.ps1 - will be built during RadioBot build."
 }
+Write-SetupProgress
 
 # OpenSSH was enabled at the start of this script so long-running steps can be
 # monitored via SSH. There is no further action needed here.
 
 Write-Log "=== Setup complete ==="
 Write-Log "Connect via:  ssh -p 2222 builder@localhost   (RDP: localhost:3389, web VNC: http://localhost:8006)"
+Write-Output "__PROGRESS_DONE__"
