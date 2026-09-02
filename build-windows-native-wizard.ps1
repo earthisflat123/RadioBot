@@ -564,8 +564,8 @@ function Process-LogLine {
 
     # MSBuild emits "ProjectName.vcxproj -> OutputPath" when a project completes.
     # We count unique project names so the bar reflects real build progress.
-    if ($script:CurrentStepName -eq 'Build' -and $Line -match '^(?:.*[\\/])?([^\\/]+)\.vcxproj\s+->') {
-        $proj = $matches[1].ToLowerInvariant()
+    if ($script:CurrentStepName -eq 'Build' -and $Line -match '^\s*(?:.*[\\/])?([^\\/]+)\.vcxproj\s+->') {
+        $proj = $matches[1].Trim().ToLowerInvariant()
         if (-not $script:BuildProgressProjects.ContainsKey($proj)) {
             $script:BuildProgressProjects[$proj] = $true
             $script:ProgressCurrent++
