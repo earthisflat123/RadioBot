@@ -614,6 +614,12 @@ public class ProcessOutputTee : IDisposable {
     public void Dispose() { Close(); }
 }
 '@
+# The child build scripts set $env:LIB to C:\deps\lib later in their own
+# processes, but if the parent shell already has a non-existent LIB path,
+# the in-memory C# compile below will fail. Strip out any missing entries
+# before compiling the tee helper.
+$env:LIB = if ($env:LIB) { ($env:LIB -split ';' | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and (Test-Path $_) }) -join ';' } else { '' }
+
 Add-Type -TypeDefinition $teeSource -ReferencedAssemblies 'System.dll'
 
 function Start-LoggedProcess {
