@@ -98,22 +98,32 @@ $btnCancel.Size = New-Object System.Drawing.Size(100, 30)
 $btnCancel.Location = New-Object System.Drawing.Point(770, 580)
 $form.Controls.Add($btnCancel)
 
-$progress = New-Object System.Windows.Forms.ProgressBar
-$progress.Style = 'Marquee'
-$progress.MarqueeAnimationSpeed = 30
-$progress.Size = New-Object System.Drawing.Size(860, 20)
-$progress.Location = New-Object System.Drawing.Point(15, 545)
-$progress.Visible = $false
-$form.Controls.Add($progress)
-
 $logBox = New-Object System.Windows.Forms.TextBox
 $logBox.Multiline = $true
 $logBox.ScrollBars = 'Vertical'
 $logBox.ReadOnly = $true
-$logBox.Size = New-Object System.Drawing.Size(860, 220)
+$logBox.Size = New-Object System.Drawing.Size(860, 200)
 $logBox.Location = New-Object System.Drawing.Point(15, 315)
 $logBox.Font = New-Object System.Drawing.Font('Consolas', 9)
 $form.Controls.Add($logBox)
+
+$lblProgress = New-Object System.Windows.Forms.Label
+$lblProgress.Size = New-Object System.Drawing.Size(860, 20)
+$lblProgress.Location = New-Object System.Drawing.Point(15, 525)
+$lblProgress.Font = New-Object System.Drawing.Font('Consolas', 9)
+$lblProgress.Text = ''
+$lblProgress.Visible = $false
+$form.Controls.Add($lblProgress)
+
+$progress = New-Object System.Windows.Forms.ProgressBar
+$progress.Style = 'Continuous'
+$progress.Minimum = 0
+$progress.Maximum = 100
+$progress.Value = 0
+$progress.Size = New-Object System.Drawing.Size(860, 20)
+$progress.Location = New-Object System.Drawing.Point(15, 550)
+$progress.Visible = $false
+$form.Controls.Add($progress)
 
 # Tail the redirected stdout/stderr files on the UI thread and advance
 # the wizard when the monitored child process has exited.
@@ -150,6 +160,16 @@ $logTimer.Add_Tick({
             }
         }
 
+        # Update the progress bar and timing label while the step is running.
+        if ($script:StepStopwatch -and $script:StepStopwatch.IsRunning) {
+            $elapsed = $script:StepStopwatch.Elapsed
+            $pct = [int][Math]::Min(99, ($elapsed.TotalSeconds / $script:StepEstimateSeconds) * 100)
+            $etaSec = [Math]::Max(0, $script:StepEstimateSeconds - $elapsed.TotalSeconds)
+            $eta = [TimeSpan]::FromSeconds($etaSec)
+            $progress.Value = $pct
+            $lblProgress.Text = ("{0}: {1}% | Elapsed: {2:hh\:mm\:ss} | ETA: {3:hh\:mm\:ss}" -f $script:CurrentStepName, $pct, $elapsed, $eta)
+        }
+
         if ($script:RunningProcess.WaitForExit(0)) {
             # The process has exited. Drain the tee files a few more ticks so
             # that the async OutputDataReceived handlers finish writing, then
@@ -167,22 +187,27 @@ $logTimer.Add_Tick({
                 if ($script:CurrentErrReader) { $script:CurrentErrReader.Close(); $script:CurrentErrReader = $null }
                 if ($script:CurrentTee) { $script:CurrentTee.Close(); $script:CurrentTee = $null }
 
-                $progress.Visible = $false
-                $btnCancel.Enabled = $true
-                $btnBack.Enabled = ($script:CurrentStep -gt 0 -and $script:CurrentStep -lt 4)
-                $btnNext.Enabled = $true
-
                 $p = $script:RunningProcess
                 $stepName = if ([string]::IsNullOrWhiteSpace($script:CurrentStepName)) { 'Step' } else { $script:CurrentStepName }
                 $exitCode = $p.ExitCode
                 $script:RunningProcess = $null
                 $script:CurrentExitReadCount = 0
 
+                if ($script:StepStopwatch) { $script:StepStopwatch.Stop() }
+
                 if ($exitCode -ne 0) {
+                    $progress.Value = 0
+                    $lblProgress.Text = ("{0} failed with exit code {1}" -f $stepName, $exitCode)
+                    $progress.Visible = $true
+                    $lblProgress.Visible = $true
                     Append-Log "ERROR: '$stepName' failed with exit code $exitCode."
                     [System.Windows.Forms.MessageBox]::Show("'$stepName' failed. Check the log for details.", 'Error', 'OK', 'Error') | Out-Null
                 } else {
-                    Append-Log "=== '$stepName' finished ==="
+                    $progress.Value = 100
+                    $elapsed = if ($script:StepStopwatch) { $script:StepStopwatch.Elapsed } else { [TimeSpan]::Zero }
+                    Append-Log ("=== '{0}' finished in {1:hh\:mm\:ss} ===" -f $stepName, $elapsed)
+                    $progress.Visible = $false
+                    $lblProgress.Visible = $false
                     $current = $script:CurrentStep
                     if ($current -lt 3) {
                         Switch-Page ($current + 1)
@@ -190,6 +215,10 @@ $logTimer.Add_Tick({
                         Show-FinishPage
                     }
                 }
+
+                $btnCancel.Enabled = $true
+                $btnBack.Enabled = ($script:CurrentStep -gt 0 -and $script:CurrentStep -lt 4)
+                $btnNext.Enabled = $true
             }
         }
     } catch {
@@ -439,11 +468,18 @@ function Switch-Page {
             $logBox.Size = New-Object System.Drawing.Size(860, 350)
             $logBox.Location = New-Object System.Drawing.Point(15, 165)
         } else {
-            $logBox.Size = New-Object System.Drawing.Size(860, 220)
+            $logBox.Size = New-Object System.Drawing.Size(860, 200)
             $logBox.Location = New-Object System.Drawing.Point(15, 315)
         }
-        $progressTop = $logBox.Bottom + 10
-        $progress.Location = New-Object System.Drawing.Point(15, $progressTop)
+
+        $lblProgress.Location = New-Object System.Drawing.Point(15, $logBox.Bottom + 10)
+        $progress.Location = New-Object System.Drawing.Point(15, $lblProgress.Bottom + 5)
+
+        # Hide the progress controls while no step is running; Start-LoggedProcess
+        # will re-show them when the next step starts.
+        $progress.Visible = $false
+        $lblProgress.Visible = $false
+        $lblProgress.Text = ''
     } catch {
         Write-WizardError "Switch-Page error: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
         throw
@@ -511,11 +547,24 @@ function Start-LoggedProcess {
     )
 
     $progress.Visible = $true
+    $lblProgress.Visible = $true
     $btnNext.Enabled = $false
     $btnBack.Enabled = $false
     $btnCancel.Enabled = $false
     Append-Log "=== Starting: $($Step.Name) ==="
     Append-Log $Step.LogHint
+
+    $script:StepStopwatch = [System.Diagnostics.Stopwatch]::StartNew()
+    $script:StepEstimateSeconds = switch ($Step.Name) {
+        'Clone'   { 60 }
+        'Setup'   { 300 }
+        'Build'   { 600 }
+        'Package' { 120 }
+        default   { 60 }
+    }
+    $progress.Value = 0
+    $eta = [TimeSpan]::FromSeconds($script:StepEstimateSeconds)
+    $lblProgress.Text = ("{0}: 0% | Elapsed: 00:00:00 | ETA: {1:hh\:mm\:ss}" -f $Step.Name, $eta)
 
     $outFile = "C:\Temp\radiobot-wizard-$($Step.Name)-out.log"
     $errFile = "C:\Temp\radiobot-wizard-$($Step.Name)-err.log"
