@@ -100,6 +100,7 @@ $page0.Visible = $true
 
 $lblRepo = New-Object System.Windows.Forms.Label
 $lblRepo.Text = 'Select the repository to build:'
+$lblRepo.AutoSize = $false
 $lblRepo.Size = New-Object System.Drawing.Size(400, 20)
 $lblRepo.Location = New-Object System.Drawing.Point(10, 10)
 $page0.Controls.Add($lblRepo)
@@ -124,7 +125,7 @@ $rbOther.Size = New-Object System.Drawing.Size(130, 20)
 $page0.Controls.Add($rbOther)
 
 $txtOtherUrl = New-Object System.Windows.Forms.TextBox
-$txtOtherUrl.Size = New-Object System.Drawing.Size(680, 20)
+$txtOtherUrl.Size = New-Object System.Drawing.Size(700, 20)
 $txtOtherUrl.Location = New-Object System.Drawing.Point(150, 85)
 $txtOtherUrl.Enabled = $false
 $page0.Controls.Add($txtOtherUrl)
@@ -139,20 +140,21 @@ $page0.Controls.Add($rbLocal)
 
 $lblPath = New-Object System.Windows.Forms.Label
 $lblPath.Text = 'Local / clone path:'
-$lblPath.Size = New-Object System.Drawing.Size(200, 20)
-$lblPath.Location = New-Object System.Drawing.Point(10, 150)
+$lblPath.AutoSize = $false
+$lblPath.Size = New-Object System.Drawing.Size(130, 20)
+$lblPath.Location = New-Object System.Drawing.Point(10, 145)
 $page0.Controls.Add($lblPath)
 
 $txtRepoDir = New-Object System.Windows.Forms.TextBox
 $txtRepoDir.Text = 'C:\RadioBot'
-$txtRepoDir.Size = New-Object System.Drawing.Size(650, 20)
-$txtRepoDir.Location = New-Object System.Drawing.Point(150, 150)
+$txtRepoDir.Size = New-Object System.Drawing.Size(600, 20)
+$txtRepoDir.Location = New-Object System.Drawing.Point(150, 145)
 $page0.Controls.Add($txtRepoDir)
 
 $btnBrowse = New-Object System.Windows.Forms.Button
 $btnBrowse.Text = 'Browse...'
-$btnBrowse.Size = New-Object System.Drawing.Size(100, 23)
-$btnBrowse.Location = New-Object System.Drawing.Point(810, 148)
+$btnBrowse.Size = New-Object System.Drawing.Size(90, 23)
+$btnBrowse.Location = New-Object System.Drawing.Point(760, 143)
 $btnBrowse.Add_Click({
     $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
     $dlg.Description = 'Select the RadioBot repository folder'
@@ -164,38 +166,40 @@ $page0.Controls.Add($btnBrowse)
 
 $lblBranch = New-Object System.Windows.Forms.Label
 $lblBranch.Text = 'Branch to clone:'
-$lblBranch.Size = New-Object System.Drawing.Size(150, 20)
-$lblBranch.Location = New-Object System.Drawing.Point(10, 182)
+$lblBranch.AutoSize = $false
+$lblBranch.Size = New-Object System.Drawing.Size(130, 20)
+$lblBranch.Location = New-Object System.Drawing.Point(10, 175)
 $page0.Controls.Add($lblBranch)
 
 $txtBranch = New-Object System.Windows.Forms.TextBox
 $txtBranch.Text = $script:Branch
-$txtBranch.Size = New-Object System.Drawing.Size(680, 20)
-$txtBranch.Location = New-Object System.Drawing.Point(170, 182)
+$txtBranch.Size = New-Object System.Drawing.Size(700, 20)
+$txtBranch.Location = New-Object System.Drawing.Point(150, 175)
 $page0.Controls.Add($txtBranch)
 
 $chkUseArchive = New-Object System.Windows.Forms.CheckBox
 $chkUseArchive.Text = 'Use radiobot-windows-deps.7z dependency archive if it exists in the repo root (skips vcpkg builds)'
-$chkUseArchive.Location = New-Object System.Drawing.Point(10, 215)
+$chkUseArchive.Location = New-Object System.Drawing.Point(10, 205)
 $chkUseArchive.Size = New-Object System.Drawing.Size(800, 20)
 $chkUseArchive.Checked = $true
 $page0.Controls.Add($chkUseArchive)
 
 $lblArchive = New-Object System.Windows.Forms.Label
-$lblArchive.Text = 'Dependency archive path (leave blank to auto-detect):'
-$lblArchive.Size = New-Object System.Drawing.Size(300, 20)
-$lblArchive.Location = New-Object System.Drawing.Point(10, 245)
+$lblArchive.Text = 'Archive path:'
+$lblArchive.AutoSize = $false
+$lblArchive.Size = New-Object System.Drawing.Size(100, 20)
+$lblArchive.Location = New-Object System.Drawing.Point(10, 235)
 $page0.Controls.Add($lblArchive)
 
 $txtArchivePath = New-Object System.Windows.Forms.TextBox
-$txtArchivePath.Size = New-Object System.Drawing.Size(640, 20)
-$txtArchivePath.Location = New-Object System.Drawing.Point(320, 245)
+$txtArchivePath.Size = New-Object System.Drawing.Size(650, 20)
+$txtArchivePath.Location = New-Object System.Drawing.Point(100, 235)
 $page0.Controls.Add($txtArchivePath)
 
 $btnBrowseArchive = New-Object System.Windows.Forms.Button
 $btnBrowseArchive.Text = 'Browse...'
-$btnBrowseArchive.Size = New-Object System.Drawing.Size(100, 23)
-$btnBrowseArchive.Location = New-Object System.Drawing.Point(810, 243)
+$btnBrowseArchive.Size = New-Object System.Drawing.Size(90, 23)
+$btnBrowseArchive.Location = New-Object System.Drawing.Point(760, 233)
 $btnBrowseArchive.Add_Click({
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
     $dlg.Filter = '7z archive (*.7z)|*.7z'
@@ -313,7 +317,8 @@ function Switch-Page {
 
 function Append-Log {
     param([string]$Line)
-    $logBox.Invoke([Action]{ $logBox.AppendText("$Line`r`n") })
+    if ($logBox.IsDisposed -or $form.IsDisposed -or -not $form.IsHandleCreated) { return }
+    $logBox.Invoke([Action]{ if (-not $logBox.IsDisposed) { $logBox.AppendText("$Line`r`n") } })
 }
 
 function Start-LoggedProcess {
@@ -345,33 +350,41 @@ function Start-LoggedProcess {
         if ($EventArgs.Data) { Append-Log $EventArgs.Data }
     })
     $p.add_Exited({
-        $progress.Visible = $false
-        $btnCancel.Enabled = $true
-        $btnNext.Enabled = $true
-        $script:RunningProcess = $null
-        if ($p.ExitCode -ne 0) {
-            Append-Log "ERROR: '$($Step.Name)' failed with exit code $($p.ExitCode)."
-            [System.Windows.Forms.MessageBox]::Show("'$($Step.Name)' failed. Check the log for details.", 'Error', 'OK', 'Error') | Out-Null
-        } else {
-            Append-Log "=== '$($Step.Name)' finished ==="
-            if ($Step.Name -eq 'Clone') {
-                # The repo now exists; re-evaluate dependency archive availability.
-                $archiveDest = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
-                $customArchive = $txtArchivePath.Text.Trim()
-                if ($chkUseArchive.Checked -and $customArchive -and (Test-Path $customArchive)) {
-                    Copy-Item $customArchive $archiveDest -Force
-                }
-                if (Test-Path $archiveDest) {
-                    $script:UseDepsArchive = $true
-                }
-                $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$script:UseDepsArchive
-            }
-            if ($script:CurrentStep -lt 3) {
-                Switch-Page ($script:CurrentStep + 1)
+        # WinForms events run on a thread pool, so UI updates must be
+        # marshalled back to the form's UI thread.
+        [void]$form.BeginInvoke([Action]{
+            if ($form.IsDisposed -or -not $form.IsHandleCreated) { return }
+
+            $progress.Visible = $false
+            $btnCancel.Enabled = $true
+            $btnBack.Enabled = ($script:CurrentStep -gt 0 -and $script:CurrentStep -lt 4)
+            $btnNext.Enabled = $true
+            $script:RunningProcess = $null
+
+            if ($p.ExitCode -ne 0) {
+                Append-Log "ERROR: '$($Step.Name)' failed with exit code $($p.ExitCode)."
+                [System.Windows.Forms.MessageBox]::Show("'$($Step.Name)' failed. Check the log for details.", 'Error', 'OK', 'Error') | Out-Null
             } else {
-                Show-FinishPage
+                Append-Log "=== '$($Step.Name)' finished ==="
+                if ($Step.Name -eq 'Clone') {
+                    # The repo now exists; re-evaluate dependency archive availability.
+                    $archiveDest = Join-Path $script:RepoDir 'radiobot-windows-deps.7z'
+                    $customArchive = $txtArchivePath.Text.Trim()
+                    if ($chkUseArchive.Checked -and $customArchive -and (Test-Path $customArchive)) {
+                        Copy-Item $customArchive $archiveDest -Force
+                    }
+                    if (Test-Path $archiveDest) {
+                        $script:UseDepsArchive = $true
+                    }
+                    $script:StepCommands = Get-StepCommands -RepoDir $script:RepoDir -UseDepsArchive:$script:UseDepsArchive
+                }
+                if ($script:CurrentStep -lt 3) {
+                    Switch-Page ($script:CurrentStep + 1)
+                } else {
+                    Show-FinishPage
+                }
             }
-        }
+        })
     })
 
     $script:RunningProcess = $p
