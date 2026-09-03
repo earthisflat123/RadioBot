@@ -13,28 +13,29 @@ param(
     downloading or extracting a previous official release.
 
 .DESCRIPTION
-    The script creates a fresh payload directory from C:\RadioBot\v5\Output,
-    generates the English language database with langdump, downloads current
-    versions of the bundled third-party tools (ffmpeg, yt-dlp, qstat), creates
-    the required data directories, and then compiles an NSIS installer.
+    The script assembles a payload directory that mirrors the layout of the
+    original installer: built binaries at the root, language files under
+    langsrc\, plugins under Plugins\, data files under trivia\, sam_scripts\,
+    DJ Package\, etc. It generates the language database, downloads current
+    versions of bundled third-party tools, and then compiles the NSIS installer.
 
-    No previous RadioBot release is downloaded or referenced. Optional
-    project-specific extras (trivia databases, sam_scripts, DJ Package, .pal
-    files) can be provided by placing them in windows-oem\extras; otherwise
-    empty directories are created for them.
+    No previous RadioBot release is downloaded. Optional project-specific extras
+    (trivia databases, SAM scripts, DJ Package files, license texts, client.pem
+    and client.exe) can be provided by placing them in windows-oem\extras with
+    the same directory layout the installer expects.
 #>
 
 $ErrorActionPreference = "Stop"
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
-$OutputDir   = "$RepoDir\v5\Output"
-$PayloadDir  = "$RepoDir\payload"
+$OutputDir    = "$RepoDir\v5\Output"
+$PayloadDir   = "$RepoDir\payload"
 $ArtifactsDir = "$RepoDir\artifacts"
-$ExtrasDir   = "$OEM\extras"
-$SevenZip    = "C:\Program Files\7-Zip\7z.exe"
-$MakeNsis    = "C:\Program Files (x86)\NSIS\makensis.exe"
-$NsisFile    = "$OEM\RadioBot.nsi"
+$ExtrasDir    = "$OEM\extras"
+$SevenZip     = "C:\Program Files\7-Zip\7z.exe"
+$MakeNsis     = "C:\Program Files (x86)\NSIS\makensis.exe"
+$NsisFile     = "$OEM\RadioBot.nsi"
 
 function Write-Log($msg) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
@@ -85,7 +86,7 @@ function Find-LangDump() {
 function Invoke-LangDump() {
     $langDump = Find-LangDump
     if (-not $langDump) {
-        Write-Log "langdump.exe not found; skipping language database generation."
+        Write-Log "langdump.exe not found; language database will be missing."
         return
     }
     Write-Log "Generating language database with $langDump..."
@@ -103,39 +104,49 @@ function Invoke-LangDump() {
     }
 }
 
-function Install-ToolFromUrl() {
+function Install-FileFromUrl() {
     param(
         [string]$Name,
         [string]$Url,
-        [string]$Destination,
-        [string]$ZipInternalPath = $null
+        [string]$Destination
     )
     Write-Log "Downloading $Name from $Url..."
-    $tempFile = Join-Path $env:TEMP ([System.IO.Path]::GetFileName($Url))
+    $tempFile = Join-Path $env:TEMP ([System.Guid]::NewGuid().ToString())
+    try {
+        Invoke-WebRequest -Uri $Url -OutFile $tempFile -UseBasicParsing -UserAgent "Mozilla/5.0" -MaximumRedirection 5
+        if (-not (Test-Path $tempFile)) { throw "Downloaded file not found" }
+        Copy-Item $tempFile (Join-Path $PayloadDir $Destination) -Force
+        Write-Log "Installed $Name -> $Destination"
+    } finally {
+        if (Test-Path $tempFile) { Remove-Item $tempFile -Force -ErrorAction SilentlyContinue }
+    }
+}
+
+function Install-FilesFromZip() {
+    param(
+        [string]$Name,
+        [string]$Url,
+        [array]$Files
+    )
+    Write-Log "Downloading $Name from $Url..."
+    $tempFile = Join-Path $env:TEMP "$Name.zip"
     $tempDir = Join-Path $env:TEMP ([System.Guid]::NewGuid().ToString())
     try {
         Invoke-WebRequest -Uri $Url -OutFile $tempFile -UseBasicParsing -UserAgent "Mozilla/5.0" -MaximumRedirection 5
         if (-not (Test-Path $tempFile)) { throw "Downloaded file not found" }
-        if ($tempFile -match '\.(zip|7z)$') {
-            New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
-            & $SevenZip x "$tempFile" -o"$tempDir" -y
-            if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction failed for $Name" }
-            $found = Get-ChildItem -Path $tempDir -Recurse -File -Filter (Split-Path -Leaf $Destination) | Select-Object -First 1
+        New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+        & $SevenZip x "$tempFile" -o"$tempDir" -y
+        if ($LASTEXITCODE -ne 0) { throw "7-Zip extraction failed for $Name" }
+
+        foreach ($f in $Files) {
+            $pattern = '*\' + $f.InternalPath
+            $found = Get-ChildItem -Path $tempDir -Recurse -File | Where-Object { $_.FullName -like $pattern } | Select-Object -First 1
             if (-not $found) {
-                if ($ZipInternalPath) {
-                    $pattern = $ZipInternalPath -replace '^\*?\\', '' -replace '\\', '\'
-                    $found = Get-ChildItem -Path $tempDir -Recurse -File | Where-Object { $_.FullName -like "*$pattern" } | Select-Object -First 1
-                }
+                Write-Log "Could not locate $($f.InternalPath) in $Name archive; skipping."
+                continue
             }
-            if (-not $found) {
-                Write-Log "Could not locate $Destination in $tempFile; $Name may not be available in the package."
-                return
-            }
-            Copy-Item $found.FullName (Join-Path $PayloadDir $Destination) -Force
-            Write-Log "Installed $Name -> $Destination"
-        } else {
-            Copy-Item $tempFile (Join-Path $PayloadDir $Destination) -Force
-            Write-Log "Installed $Name -> $Destination"
+            Copy-Item $found.FullName (Join-Path $PayloadDir $f.Destination) -Force
+            Write-Log "Installed $Name file -> $($f.Destination)"
         }
     } finally {
         if (Test-Path $tempFile) { Remove-Item $tempFile -Force -ErrorAction SilentlyContinue }
@@ -144,19 +155,35 @@ function Install-ToolFromUrl() {
 }
 
 function Install-ExternalTools() {
-    $tools = @(
-        @{ Name = 'yt-dlp'; Url = 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_x86.exe'; Destination = 'yt-dlp.exe' },
-        @{ Name = 'ffmpeg'; Url = 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win32-gpl.zip'; Destination = 'ffmpeg.exe'; ZipInternalPath = 'bin\ffmpeg.exe' },
-        @{ Name = 'qstat'; Url = 'https://nyov.github.io/qstat-svn/downloads/qstat-2.11-win32.zip'; Destination = 'qstat.exe'; ZipInternalPath = 'win32\qstat.exe' }
-    )
-    foreach ($t in $tools) {
-        try {
-            Invoke-WithRetry -Command {
-                Install-ToolFromUrl -Name $t.Name -Url $t.Url -Destination $t.Destination -ZipInternalPath $t.ZipInternalPath
-            }
-        } catch {
-            Write-Log "WARNING: Could not install $($t.Name): $_"
+    try {
+        Invoke-WithRetry -Command {
+            Install-FileFromUrl -Name 'yt-dlp' -Url 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_x86.exe' -Destination 'yt-dlp.exe'
         }
+    } catch {
+        Write-Log "WARNING: Could not install yt-dlp: $_"
+    }
+
+    try {
+        Invoke-WithRetry -Command {
+            Install-FilesFromZip -Name 'ffmpeg' -Url 'https://github.com/yt-dlp/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win32-gpl.zip' -Files @(
+                @{ InternalPath = 'bin\ffmpeg.exe'; Destination = 'ffmpeg.exe' },
+                @{ InternalPath = 'bin\ffprobe.exe'; Destination = 'ffprobe.exe' }
+            )
+        }
+    } catch {
+        Write-Log "WARNING: Could not install ffmpeg/ffprobe: $_"
+    }
+
+    # Official qstat Windows binary from SourceForge. SourceForge redirects to a
+    # mirror; the /download suffix triggers the redirect.
+    try {
+        Invoke-WithRetry -Command {
+            Install-FilesFromZip -Name 'qstat' -Url 'https://sourceforge.net/projects/qstat/files/qstat-2.11-win32.zip/download' -Files @(
+                @{ InternalPath = 'win32\qstat.exe'; Destination = 'qstat.exe' }
+            )
+        }
+    } catch {
+        Write-Log "WARNING: Could not install qstat: $_"
     }
 }
 
@@ -165,6 +192,19 @@ function Copy-OptionalExtras() {
     Write-Log "Copying project extras from $ExtrasDir..."
     & C:\Windows\System32\robocopy.exe "$ExtrasDir" "$PayloadDir" /E /COPY:DAT /MT:4 /R:2 /W:2 /NDL /NFL
     if ($LASTEXITCODE -ge 8) { throw "robocopy extras failed" }
+}
+
+function Copy-Licenses() {
+    # The build output may already contain a Licenses folder from vcpkg/runtime
+    # artifacts. If not, create an empty one; extras can fill it in.
+    if (Test-Path "$OutputDir\Licenses") {
+        Write-Log "Copying Licenses from build output..."
+        & C:\Windows\System32\robocopy.exe "$OutputDir\Licenses" "$PayloadDir\Licenses" /E /COPY:DAT /MT:4 /R:2 /W:2 /NDL /NFL
+        if ($LASTEXITCODE -ge 8) { Write-Log "WARNING: robocopy Licenses from build output failed" }
+    }
+    if (-not (Test-Path "$PayloadDir\Licenses")) {
+        New-Item -ItemType Directory -Force -Path "$PayloadDir\Licenses" | Out-Null
+    }
 }
 
 function Build-Payload() {
@@ -190,21 +230,41 @@ function Build-Payload() {
     if (Test-Path $ClientPem)  { Copy-Item $ClientPem  $PayloadDir -Force }
 
     $SrcIcon = "$RepoDir\client\ca.ico"
-    if (Test-Path $SrcIcon) { Copy-Item $SrcIcon "$PayloadDir\shoutirc.ico" -Force }
+    if (Test-Path $SrcIcon) {
+        Copy-Item $SrcIcon "$PayloadDir\shoutirc.ico" -Force
+    }
 
-    # Generate or carry over the language database.
+    # Generate language database.
     Invoke-LangDump
     Write-Output "__PROGRESS__ 2 5"
 
-    # Download current versions of third-party tools.
+    # Download current versions of bundled third-party tools.
     Install-ExternalTools
     Write-Output "__PROGRESS__ 3 5"
 
-    # Create required data directories; extras from windows-oem\extras are
-    # overlaid on top if present.
-    @('langsrc\el_GR', 'trivia', 'sam_scripts', 'DJ Package') | ForEach-Object {
+    # Create the directory layout found in the original installer.
+    @('DJ Package', 'Licenses', 'langsrc\el_GR', 'sam_scripts', 'trivia') | ForEach-Object {
         New-Item -ItemType Directory -Force -Path (Join-Path $PayloadDir $_) | Out-Null
     }
+
+    # DJ Package gets its own copy of the icon, matching the original layout.
+    if (Test-Path "$PayloadDir\shoutirc.ico") {
+        Copy-Item "$PayloadDir\shoutirc.ico" "$PayloadDir\DJ Package\shoutirc.ico" -Force
+    }
+
+    Copy-Licenses
+
+    # Add helper batch file from the repo.
+    $UpdateLang = "$OEM\update-lang.bat"
+    if (Test-Path $UpdateLang) {
+        Copy-Item $UpdateLang "$PayloadDir\update-lang.bat" -Force
+    } elseif (Test-Path "$RepoDir\windows-oem\update-lang.bat") {
+        Copy-Item "$RepoDir\windows-oem\update-lang.bat" "$PayloadDir\update-lang.bat" -Force
+    }
+
+    # Extras from windows-oem\extras are overlaid last so they can provide any
+    # project-specific files the build process cannot produce (trivia, SAM
+    # scripts, DJ Package files, client.pem, client.exe, license texts, etc.).
     Copy-OptionalExtras
     Write-Output "__PROGRESS__ 4 5"
 }
