@@ -3,7 +3,9 @@
 param(
     [string]$RepoSrc = "",
     [string]$RepoDst = "C:\RadioBot",
-    [switch]$UseDepsArchive
+    [string]$OEM = "C:\OEM",
+    [switch]$UseDepsArchive,
+    [switch]$Native
 )
 
 $ErrorActionPreference = "Stop"
@@ -16,7 +18,6 @@ $ProgressPreference = 'SilentlyContinue'
 # logon token. We keep the detailed log locally and the host can SSH in and
 # tail it, avoiding all Z: mapping issues.
 
-$OEM = "C:\OEM"
 $TempDir = "C:\Temp"
 $LogFile = "$TempDir\setup-radiobot.log"
 New-Item -ItemType Directory -Force -Path $TempDir | Out-Null
@@ -27,6 +28,16 @@ function Write-Log($Message) {
     Write-Host $line
     [System.IO.File]::AppendAllText($LogFile, "$line`r`n")
 }
+
+# Track setup progress for the wizard. Milestones are reported as they are
+# reached; skipped steps are simply not counted.
+$SetupProgressTotal = 8
+$SetupProgressCurrent = 0
+function Write-SetupProgress {
+    $script:SetupProgressCurrent++
+    Write-Output "__PROGRESS__ $script:SetupProgressCurrent $script:SetupProgressTotal"
+}
+Write-Output "__PROGRESS_TOTAL__ $SetupProgressTotal"
 
 function Install-OpenSSHServer() {
     try {
@@ -141,6 +152,9 @@ function Find-AndMap-SharedDrive {
 # Resolve the host shared folder early. Everything else (source copy, vcpkg
 # manifest, and the log) depends on having a working share.
 if ([string]::IsNullOrEmpty($RepoSrc) -or -not (Test-Path $RepoSrc)) {
+    if ($Native) {
+        throw "Native build requires -RepoSrc to be set to the repo path."
+    }
     $found = Find-AndMap-SharedDrive
     if ($found) {
         $RepoSrc = $found
@@ -157,11 +171,15 @@ Write-Log "Using host shared source: $RepoSrc"
 # Enable headless access as early as possible so long-running installs can be
 # inspected/debugged from the host without waiting for setup to finish.
 Write-Log "=== Starting RadioBot Windows build environment setup ==="
-Write-Log "Enabling OpenSSH early..."
-Install-OpenSSHServer
-Add-HostSSHPublicKey -OemDir "C:\OEM"
-Write-Log "OpenSSH ready. The host can tail this log with:"
-Write-Log "  ssh -p 2222 -i ~/.ssh/radiobot_windows_builder builder@localhost powershell -Command 'Get-Content -Wait C:\Temp\setup-radiobot.log'"
+if (-not $Native) {
+    Write-Log "Enabling OpenSSH early..."
+    Install-OpenSSHServer
+    Add-HostSSHPublicKey -OemDir $OEM
+    Write-Log "OpenSSH ready. The host can tail this log with:"
+    Write-Log "  ssh -p 2222 -i ~/.ssh/radiobot_windows_builder builder@localhost powershell -Command 'Get-Content -Wait C:\Temp\setup-radiobot.log'"
+} else {
+    Write-Log "Native build mode: skipping OpenSSH server setup."
+}
 
 function Invoke-WithRetry {
     param([scriptblock]$Command, [int]$MaxAttempts = 3)
@@ -200,10 +218,12 @@ if (-not (Test-Path $choco)) {
     $env:Path = [Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [Environment]::GetEnvironmentVariable("Path", "User")
     $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
 }
+Write-SetupProgress
 
 # 2. Core build tools
 Write-Log "Installing git, 7-Zip, CMake, Python..."
 & $choco install -y git 7zip cmake python3 --no-progress
+Write-SetupProgress
 
 # 3. Visual Studio Build Tools 2022 (v143 toolset)
 Write-Log "Downloading Visual Studio Build Tools..."
@@ -235,9 +255,9 @@ while (-not (Test-Path $VsMsBuild) -and $elapsed -lt $maxWait) {
 }
 if (-not (Test-Path $VsMsBuild)) { throw "Timed out waiting for Visual Studio Build Tools to install." }
 Write-Log "Visual Studio Build Tools installed."
+Write-SetupProgress
 
 # Common paths used by both dependency modes
-$OEM = "C:\OEM"
 $deps = "C:\deps"
 
 # 4-7. vcpkg + dependencies (fresh) or restore from archive (opt-in)
@@ -279,17 +299,26 @@ function Find-DependencyArchive() {
 }
 
 # Copy the RadioBot source into a local directory before running vcpkg so the
-# build does not depend on the sometimes-flaky Samba mapped drive.
+# build does not depend on the sometimes-flaky Samba mapped drive. In native
+# mode the source is already local, so we skip the copy and just stage the
+# pristine solution.
 if (Test-Path $RepoSrc) {
-    Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
-    New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
-    & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
-        /XD "windows-storage" "windows-oem" ".git" "vcpkg-cache" "artifacts" ".worktree" `
-        /Z /MT:4 /R:3 /W:5 /NDL /NFL
-    Write-Log "Source copied."
+    $src = $RepoSrc.TrimEnd('\')
+    $dst = $RepoDst.TrimEnd('\')
+    if ($src -ne $dst) {
+        Write-Log "Copying RadioBot source from $RepoSrc to $RepoDst..."
+        New-Item -ItemType Directory -Force -Path $RepoDst | Out-Null
+        & "C:\Windows\System32\robocopy.exe" $RepoSrc $RepoDst /MIR `
+            /XD "windows-storage" "windows-oem" ".git" "vcpkg-cache" "artifacts" ".worktree" `
+            /Z /MT:4 /R:3 /W:5 /NDL /NFL
+        Write-Log "Source copied."
+    } else {
+        Write-Log "Source already at destination ($RepoSrc), skipping copy."
+    }
+    Write-SetupProgress
 
     # Save a pristine copy of the solution for the build script to prune.
-    $Sln = "$RepoDst\IRCBot\IRCBot.sln"
+    $Sln = "$dst\IRCBot\IRCBot.sln"
     if (Test-Path $Sln) {
         Copy-Item $Sln "$OEM\IRCBot.sln.orig" -Force
         Write-Log "Saved pristine IRCBot.sln to $OEM\IRCBot.sln.orig."
@@ -316,7 +345,8 @@ if ($UseDepsArchive) {
         # Fall back to the 7-Zip install that Chocolatey just put on the PATH
         $SevenZip = "7z"
     }
-    & $SevenZip x $ArchivePath -oC:\ -y
+    # Suppress 7-Zip's verbose file list; keep errors visible on stderr.
+    & $SevenZip x $ArchivePath -oC:\ -y -bso0 -bsp0
     if ($LASTEXITCODE -ne 0) { throw "Dependency archive extraction failed with exit code $LASTEXITCODE." }
     if (-not (Test-Path $vcpkgDir)) {
         throw "vcpkg directory not found after archive extraction."
@@ -328,6 +358,7 @@ if ($UseDepsArchive) {
         throw "vcpkg installed tree not found after archive extraction."
     }
     Write-Log "Dependency archive restored."
+    Write-SetupProgress
 } else {
     # 4. vcpkg
     if (-not (Test-Path $vcpkgDir)) {
@@ -409,11 +440,13 @@ if ($UseDepsArchive) {
     } else {
         Write-Log "DSL build script not found at $OEM\build-dsl.ps1 - DSL will need to be built manually."
     }
+    Write-SetupProgress
 
     # 7. OpenSSL is provided by the vcpkg manifest and staged into C:\deps
     # above. The separate slproweb.com installer is no longer reliable (404),
     # so we rely on the vcpkg port.
     Write-Log "OpenSSL will be provided by vcpkg (staged to C:\deps)."
+    Write-SetupProgress
 }
 
 # 8. Build libfaac and libspopc from source. These libraries are not in vcpkg,
@@ -434,6 +467,7 @@ if (Test-Path "$OEM\build-libfaac.ps1") {
 } else {
     Write-Log "libfaac build script not found at $OEM\build-libfaac.ps1 - will be built during RadioBot build."
 }
+Write-SetupProgress
 
 if (Test-Path "$OEM\build-libspopc.ps1") {
     if (-not (Test-Path "C:\deps\lib\libspopc.lib")) {
@@ -450,9 +484,11 @@ if (Test-Path "$OEM\build-libspopc.ps1") {
 } else {
     Write-Log "libspopc build script not found at $OEM\build-libspopc.ps1 - will be built during RadioBot build."
 }
+Write-SetupProgress
 
 # OpenSSH was enabled at the start of this script so long-running steps can be
 # monitored via SSH. There is no further action needed here.
 
 Write-Log "=== Setup complete ==="
 Write-Log "Connect via:  ssh -p 2222 builder@localhost   (RDP: localhost:3389, web VNC: http://localhost:8006)"
+Write-Output "__PROGRESS_DONE__"

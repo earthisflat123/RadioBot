@@ -1,6 +1,8 @@
 [CmdletBinding()]
 param(
-    [string]$OutFile = ""
+    [string]$OutFile = "",
+    [string]$RepoDir = "C:\RadioBot",
+    [string]$OEM = "C:\OEM"
 )
 
 #Requires -Version 5.1
@@ -31,11 +33,10 @@ param(
 
 $ErrorActionPreference = "Stop"
 
-$RepoDir      = "C:\RadioBot"
 $OutputDir    = "$RepoDir\v5\Output"
 $PayloadDir   = "$RepoDir\payload-official"
 $LocalInstall = "$RepoDir\official-installer.exe"
-$OEMDir       = "C:\OEM"
+$OEMDir       = $OEM
 $NsisFile     = "$OEMDir\RadioBot.nsi"
 $SevenZip     = "C:\Program Files\7-Zip\7z.exe"
 $MakeNsis     = "C:\Program Files (x86)\NSIS\makensis.exe"
@@ -67,6 +68,8 @@ if ([string]::IsNullOrWhiteSpace($OutFile)) {
 }
 
 # 3. Ensure NSIS is installed.
+Write-Output "__PROGRESS_TOTAL__ 4"
+
 if (-not (Test-Path $MakeNsis)) {
     Write-Log "NSIS not found, installing via Chocolatey..."
     $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
@@ -128,6 +131,7 @@ Write-Log "Extracted $extracted files to payload directory."
 Remove-Item -LiteralPath "$PayloadDir\`$PLUGINSDIR" -Recurse -Force -ErrorAction SilentlyContinue
 $afterRemove = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
 Write-Log "After removing `$PLUGINSDIR: $afterRemove files."
+Write-Output "__PROGRESS__ 1 4"
 
 # 3. Overlay the new build output on top of the payload. This preserves all the
 #    official extra files (langsrc, trivia, sam_scripts, DJ Package, .pal files,
@@ -139,6 +143,7 @@ Write-Log "Payload contains $beforeOverlay files before overlay."
 $afterOverlay = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
 Write-Log "Payload contains $afterOverlay files after overlay."
 if ($LASTEXITCODE -ge 8) { throw "robocopy overlay failed" }
+Write-Output "__PROGRESS__ 2 4"
 
 # 3b. Remove only the temporary NSIS plugin directory that 7-Zip extracts from
 #     the official installer. All official extra files (DJ Package, language
@@ -167,10 +172,14 @@ if (Test-Path $ClientPem)  { Copy-Item $ClientPem  $PayloadDir -Force }
 $SrcIcon = "$RepoDir\client\ca.ico"
 if (Test-Path $SrcIcon) { Copy-Item $SrcIcon "$PayloadDir\shoutirc.ico" -Force }
 
-# 6. Copy the NSIS source to C:\OEM.
+# 6. Copy the NSIS source to C:\OEM (when OEM is not already the repo's windows-oem folder).
 New-Item -ItemType Directory -Force -Path $OEMDir | Out-Null
 $RepoOEM = "$RepoDir\windows-oem"
-if (Test-Path "$RepoOEM\RadioBot.nsi") { Copy-Item "$RepoOEM\RadioBot.nsi" $OEMDir -Force }
+$RepoOEMFull = (Get-Item $RepoOEM -ErrorAction SilentlyContinue).FullName
+$OEMDirFull  = (Get-Item $OEMDir).FullName
+if ((Test-Path "$RepoOEM\RadioBot.nsi") -and ($RepoOEMFull -ne $OEMDirFull)) {
+    Copy-Item "$RepoOEM\RadioBot.nsi" $OEMDir -Force
+}
 
 # 7. Ensure the output directory exists.
 New-Item -ItemType Directory -Force -Path (Split-Path $OutFile -Parent) | Out-Null
@@ -179,6 +188,7 @@ New-Item -ItemType Directory -Force -Path (Split-Path $OutFile -Parent) | Out-Nu
 Write-Log "Building installer with makensis..."
 & $MakeNsis "/DPAYLOADDIR=$PayloadDir" "/DOUTFILE=$OutFile" $NsisFile
 if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+Write-Output "__PROGRESS__ 3 4"
 
 if (Test-Path $OutFile) {
     Write-Log "Installer built: $OutFile"
@@ -202,3 +212,5 @@ if ($HostInstall -and (Test-Path $InstallerSrc) -and (-not (Test-Path $HostInsta
     Copy-Item $InstallerSrc $HostInstall -Force
     Write-Log "Cached official installer on host shared drive: $HostInstall"
 }
+
+Write-Output "__PROGRESS_DONE__"

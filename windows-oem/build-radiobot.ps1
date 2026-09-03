@@ -10,7 +10,7 @@
     cannot build with the vcpkg environment, builds the solution with MSBuild,
     and copies the final v5\Output tree to the host shared drive (Z:\artifacts).
 
-    Helper files are expected in C:\OEM (the mounted windows-oem/ folder):
+    Helper files are expected in $OEM (the mounted windows-oem/ folder):
         - IRCBot.sln.orig          pristine copy of IRCBot\IRCBot.sln
         - Directory.Build.props    global build properties
         - sln-prune.ps1            removes projects from a .sln
@@ -19,14 +19,15 @@
 #>
 
 param(
-    [string]$RepoDir = "C:\RadioBot"
+    [string]$RepoDir = "C:\RadioBot",
+    [string]$OEM = "C:\OEM"
 )
 
 $ErrorActionPreference = "Stop"
 
 $env:Path = "C:\Program Files\Git\bin;$env:Path"
 
-$Log = "C:\OEM\build-radio.log"
+$Log = "$OEM\build-radio.log"
 $Sln = "$RepoDir\IRCBot\IRCBot.sln"
 $SlnDir = "$RepoDir\IRCBot"
 $VcpkgRoot = "C:\vcpkg\installed\x86-windows"
@@ -36,7 +37,7 @@ Start-Transcript -Path $Log -Force
 
 try {
     # 1. Global build props.
-    Copy-Item "C:\OEM\Directory.Build.props" "$RepoDir\Directory.Build.props" -Force
+    Copy-Item "$OEM\Directory.Build.props" "$RepoDir\Directory.Build.props" -Force
 
     # 2. Make compiler/linker find headers, libs, and add_checksum.exe.
     $env:INCLUDE = "$DepsDir\drift;$VcpkgRoot\include;$VcpkgRoot\include\opus;$VcpkgRoot\include\ogg;$DepsDir\include;$env:INCLUDE"
@@ -46,19 +47,19 @@ try {
     # 3. DSL static library. It is built once during VM setup, but if it is
     #    missing (for example a clean incremental build), build it now.
     if (-not (Test-Path "$DepsDir\lib\ibdsl.lib")) {
-        if (Test-Path "C:\OEM\build-dsl.ps1") {
-            & C:\OEM\build-dsl.ps1
+        if (Test-Path "$OEM\build-dsl.ps1") {
+            & $OEM\build-dsl.ps1
         } else {
-            throw "DSL (ibdsl.lib) is not built and C:\OEM\build-dsl.ps1 is missing"
+            throw "DSL (ibdsl.lib) is not built and $OEM\build-dsl.ps1 is missing"
         }
     }
 
     # 4. Start from a pristine solution and remove projects that cannot build
     #    in this vcpkg environment.
-    if (-not (Test-Path "C:\OEM\IRCBot.sln.orig")) {
-        throw "Pristine solution not found at C:\OEM\IRCBot.sln.orig"
+    if (-not (Test-Path "$OEM\IRCBot.sln.orig")) {
+        throw "Pristine solution not found at $OEM\IRCBot.sln.orig"
     }
-    Copy-Item "C:\OEM\IRCBot.sln.orig" $Sln -Force
+    Copy-Item "$OEM\IRCBot.sln.orig" $Sln -Force
 
     $RemoveProjects = @(
         # 'Client3', 'Client5', 'MusicScanner' are now enabled below
@@ -75,7 +76,12 @@ try {
                              # reference AAC+ encoder and has restrictive licensing.
                              # The official Windows installer also omits this plugin.
     )
-    & C:\OEM\sln-prune.ps1 -Projects $RemoveProjects
+    & $OEM\sln-prune.ps1 -Projects $RemoveProjects
+
+    # Report total build units to the wizard. The solution has been pruned; the
+    # add_checksum and ConfigWizard projects are built separately.
+    $BuildProgressTotal = (Get-Content $Sln | Select-String '^Project\(').Count + 2
+    Write-Output "__PROGRESS_TOTAL__ $BuildProgressTotal"
 
     # 5. Generate the .pb.cc/.pb.h files expected by AutoDJ, Mumble, and the main exes.
     $Protoc = "$VcpkgRoot\..\x64-windows\tools\protobuf\protoc.exe"
@@ -101,16 +107,16 @@ try {
 
     # 5c. Build libfaac from source for the AAC encoder. It needs no vcpkg package.
     if (-not (Test-Path "C:\deps\lib\libfaac.lib")) {
-        & C:\OEM\build-libfaac.ps1
+        & $OEM\build-libfaac.ps1
     }
 
     # 5d. Build libspopc from source for the SMS plugin.
     if (-not (Test-Path "C:\deps\lib\libspopc.lib")) {
-        & C:\OEM\build-libspopc.ps1
+        & $OEM\build-libspopc.ps1
     }
 
     # 6. Create dependency name aliases (DSL module names, legacy 32-bit lib names).
-    & C:\OEM\fix-deps.ps1
+    & $OEM\fix-deps.ps1
 
     # 7. Map the host shared drive to Z: if it is not already available.
     #    The build still succeeds if mapping fails; artifacts are copied locally
@@ -149,6 +155,23 @@ try {
     if ($LASTEXITCODE -ne 0) { throw "inc_build build failed" }
     Copy-Item "$RepoDir\inc_build\Release\inc_build.exe" "$RepoDir\inc_build.exe" -Force -ErrorAction SilentlyContinue
 
+    # Bump build.h once here, then neuter the per-project CustomBuildStep that
+    # would otherwise race when the solution is built with /m (two projects
+    # try to read build.ini / write build.h at the same time).
+    & "$RepoDir\inc_build.exe" "$RepoDir\v5\src\build.ini" "$RepoDir\v5\src\build.h"
+
+    $ns = @{ ms = 'http://schemas.microsoft.com/developer/msbuild/2003' }
+    foreach ($projFile in @("$RepoDir\v5\IRCBot5\IRCBot5.vcxproj", "$RepoDir\v5\IRCBot5_Standalone\IRCBot5_Standalone.vcxproj")) {
+        if (Test-Path $projFile) {
+            [xml]$vcx = Get-Content $projFile
+            $cmdNode = (Select-Xml -Xml $vcx -Namespace $ns -XPath '//ms:CustomBuildStep/ms:Command[contains(text(),"inc_build.exe")]' | Select-Object -First 1).Node
+            if ($cmdNode -and $cmdNode.InnerText -notmatch 'exit 0') {
+                $cmdNode.InnerText = 'cmd /c exit 0'
+                $vcx.Save($projFile)
+            }
+        }
+    }
+
     # 10. Build the full solution in parallel.
     & $MsBuild $Sln /p:Configuration=Release /p:Platform=Win32 /m /v:minimal
     if ($LASTEXITCODE -ne 0) { throw "RadioBot build failed" }
@@ -176,6 +199,7 @@ try {
         & C:\Windows\System32\robocopy.exe $OutputDir $ArtifactDir /E /NDL /NFL /MT:4 /R:3 /W:5
     }
 
+    Write-Output "__PROGRESS_DONE__"
     Write-Host "Build complete. Artifacts are in $ArtifactDir"
 } finally {
     Stop-Transcript
