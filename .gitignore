@@ -54,6 +54,7 @@ docker-compose.override.yml
 
 # Headless Windows build artifacts
 windows-storage/
+windows-storage-win11/
 artifacts/
 vcpkg-cache/
 windows-oem/id_rsa*
