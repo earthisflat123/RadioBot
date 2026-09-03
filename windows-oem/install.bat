@@ -1,5 +1,18 @@
 @echo off
 echo Starting RadioBot Windows build environment setup...
+
+REM OpenSSH is installed first so the host can SSH in if the rest of
+REM the setup fails or takes a long time. Native builds do not use it.
+powershell -ExecutionPolicy Bypass -NoProfile -File "C:\OEM\setup-openssh.ps1" -OEM "C:\OEM"
+set LASTERR=%ERRORLEVEL%
+if %LASTERR% NEQ 0 (
+    echo.
+    echo OpenSSH setup failed.
+    echo Press any key to close this window...
+    pause >nul
+    exit /b %LASTERR%
+)
+
 powershell -ExecutionPolicy Bypass -NoProfile -File "C:\OEM\setup.ps1"
 set LASTERR=%ERRORLEVEL%
 if %LASTERR% NEQ 0 (

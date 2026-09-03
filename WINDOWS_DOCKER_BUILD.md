@@ -16,8 +16,9 @@ The Windows project files reference many third-party libraries under `C:\deps` a
 | File | Purpose |
 |------|---------|
 | `docker-compose.windows.yml` | Launches the `dockur/windows` container. |
-| `windows-oem/install.bat` | First-logon hook; runs `windows-oem/setup.ps1`. |
-| `windows-oem/setup.ps1` | Provisions the VM: Build Tools, vcpkg, DSL, dependencies, OpenSSH, and saves a pristine copy of the solution. |
+| `windows-oem/install.bat` | First-logon hook; runs `windows-oem/setup-openssh.ps1` then `windows-oem/setup.ps1`. |
+| `windows-oem/setup-openssh.ps1` | Installs the OpenSSH server and adds the host public key (VM/Docker path only). |
+| `windows-oem/setup.ps1` | Provisions the VM: Build Tools, vcpkg, DSL, dependencies, and saves a pristine copy of the solution. |
 | `windows-oem/build-radiobot.ps1` | Full build orchestration (prunes solution, generates protobuf, creates lib aliases, builds with MSBuild, copies artifacts). |
 | `windows-oem/build-dsl.ps1` | Clones and builds the Drift Standard Library (`ibdsl.lib`). |
 | `windows-oem/CMakeLists.dsl.txt` | Custom CMakeLists used by `build-dsl.ps1`. |
@@ -61,14 +62,15 @@ You can monitor the install with:
 - RDP: `localhost:3389`
 - Logs: `docker logs -f radiobot-windows-build`
 
-The setup script (`windows-oem/setup.ps1`) installs:
+The first-logon script (`windows-oem/install.bat`) installs:
 
-- Chocolatey, Git, CMake, Python
-- Visual Studio Build Tools 2022 (v143 toolset)
-- vcpkg with the packages required by RadioBot
-- The Drift Standard Library (DSL) as `ibdsl.lib`
-- A pristine copy of `IRCBot\IRCBot.sln` saved as `C:\OEM\IRCBot.sln.orig`
-- OpenSSH server
+- OpenSSH server via `windows-oem/setup-openssh.ps1`
+- Build environment via `windows-oem/setup.ps1`:
+  - Chocolatey, Git, CMake, Python
+  - Visual Studio Build Tools 2022 (v143 toolset)
+  - vcpkg with the packages required by RadioBot
+  - The Drift Standard Library (DSL) as `ibdsl.lib`
+  - A pristine copy of `IRCBot\IRCBot.sln` saved as `C:\OEM\IRCBot.sln.orig`
 
 This can take 30–60 minutes on the first run.
 

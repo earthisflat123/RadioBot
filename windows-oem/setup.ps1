@@ -39,68 +39,6 @@ function Write-SetupProgress {
 }
 Write-Output "__PROGRESS_TOTAL__ $SetupProgressTotal"
 
-function Install-OpenSSHServer() {
-    try {
-        $cap = Get-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-        if ($cap.State -ne 'Installed') {
-            Write-Log "Installing OpenSSH server..."
-            Add-WindowsCapability -Online -Name OpenSSH.Server~~~~0.0.1.0
-        } else {
-            Write-Log "OpenSSH server already installed."
-        }
-        $sshd = Get-Service -Name sshd -ErrorAction SilentlyContinue
-        if (-not $sshd) {
-            Write-Log "sshd service not found after install."
-            return
-        }
-        Start-Service sshd -ErrorAction SilentlyContinue
-        Set-Service -Name sshd -StartupType Automatic
-        if (-not (Get-NetFirewallRule -Name "OpenSSH-Server" -ErrorAction SilentlyContinue)) {
-            New-NetFirewallRule -Name "OpenSSH-Server" -DisplayName "OpenSSH Server" -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 | Out-Null
-        }
-        Write-Log "OpenSSH server is running."
-    } catch {
-        Write-Log "OpenSSH setup failed: $_"
-    }
-}
-
-function Add-HostSSHPublicKey($OemDir) {
-    $sshDir = "C:\Users\builder\.ssh"
-    $authKeys = "$sshDir\authorized_keys"
-    $pubKey = "$OemDir\id_rsa.pub"
-    if (-not (Test-Path $pubKey)) { return }
-    Write-Log "Adding host SSH public key..."
-    New-Item -ItemType Directory -Force -Path $sshDir | Out-Null
-    Copy-Item $pubKey $authKeys -Force
-    try {
-        $acl = Get-Acl $sshDir
-        $acl.SetAccessRuleProtection($true, $false)
-        $acl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("builder", "FullControl", "ContainerInherit,ObjectInherit", "None", "Allow")))
-        # sshd (running as SYSTEM) must be able to read the key, and administrators may need access.
-        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("NT AUTHORITY\SYSTEM", "ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")))
-        $acl.AddAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("BUILTIN\Administrators", "ReadAndExecute", "ContainerInherit,ObjectInherit", "None", "Allow")))
-        Set-Acl $sshDir $acl
-        Set-Acl $authKeys (Get-Acl $sshDir)
-    } catch {
-        Write-Log "Could not tighten SSH ACLs: $_"
-    }
-
-    # Windows OpenSSH defaults to __PROGRAMDATA__/ssh/administrators_authorized_keys
-    # for members of the administrators group, so the key must also be there.
-    $adminKeys = "$env:ProgramData\ssh\administrators_authorized_keys"
-    try {
-        Copy-Item $pubKey $adminKeys -Force
-        $adminAcl = Get-Acl $adminKeys
-        $adminAcl.SetAccessRuleProtection($true, $false)
-        $adminAcl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("NT AUTHORITY\SYSTEM", "FullControl", "Allow")))
-        $adminAcl.SetAccessRule((New-Object System.Security.AccessControl.FileSystemAccessRule("BUILTIN\Administrators", "ReadAndExecute", "Allow")))
-        Set-Acl $adminKeys $adminAcl
-        Write-Log "Updated administrators authorized keys."
-    } catch {
-        Write-Log "Could not update administrators authorized keys: $_"
-    }
-}
-
 function Find-AndMap-SharedDrive {
     # dockur/windows exposes the host bind mount as a Samba share at
     # \\host.lan\Data. It is sometimes exposed as C:\Users\builder\Desktop\Shared
@@ -168,18 +106,7 @@ $manifestRoot = $RepoSrc.TrimEnd('\')
 
 Write-Log "Using host shared source: $RepoSrc"
 
-# Enable headless access as early as possible so long-running installs can be
-# inspected/debugged from the host without waiting for setup to finish.
 Write-Log "=== Starting RadioBot Windows build environment setup ==="
-if (-not $Native) {
-    Write-Log "Enabling OpenSSH early..."
-    Install-OpenSSHServer
-    Add-HostSSHPublicKey -OemDir $OEM
-    Write-Log "OpenSSH ready. The host can tail this log with:"
-    Write-Log "  ssh -p 2222 -i ~/.ssh/radiobot_windows_builder builder@localhost powershell -Command 'Get-Content -Wait C:\Temp\setup-radiobot.log'"
-} else {
-    Write-Log "Native build mode: skipping OpenSSH server setup."
-}
 
 function Invoke-WithRetry {
     param([scriptblock]$Command, [int]$MaxAttempts = 3)
@@ -486,9 +413,5 @@ if (Test-Path "$OEM\build-libspopc.ps1") {
 }
 Write-SetupProgress
 
-# OpenSSH was enabled at the start of this script so long-running steps can be
-# monitored via SSH. There is no further action needed here.
-
 Write-Log "=== Setup complete ==="
-Write-Log "Connect via:  ssh -p 2222 builder@localhost   (RDP: localhost:3389, web VNC: http://localhost:8006)"
 Write-Output "__PROGRESS_DONE__"
