@@ -54,7 +54,7 @@ powershell -ExecutionPolicy Bypass -File .\build-windows-native-console.ps1
 1. **Repository** — choose upstream, the recommended fork, a custom URL, or an existing local clone.
 2. **Setup** — installs Chocolatey, Visual Studio Build Tools 2022, vcpkg, the Drift Standard Library, libfaac, and libspopc.
 3. **Build** — compiles `RadioBot.exe`, `AutoDJ.exe`, `RadioBot_Shell.exe`, `ConfigWizard.exe`, and the other tools.
-4. **Package** — builds `RadioBot-setup.exe` using NSIS and the official installer payload.
+4. **Package** — builds `RadioBot-setup.exe` using NSIS from the build output. It no longer downloads the previous official release; instead it downloads current versions of bundled third-party tools (yt-dlp, ffmpeg, qstat) and generates the language database.
 5. **Finish** — launch any built binary, open the artifacts folder, or close the wizard.
 
 ## Using a dependency archive
@@ -73,7 +73,8 @@ The archive can be produced from an existing VM or Docker build by running `wind
 | `windows-oem/native-build-core.psm1` | Shared PowerShell module used by the console and GUI. |
 | `windows-oem/setup.ps1` | Installs the build environment. `-Native` mode skips Docker/Samba/SSH setup. |
 | `windows-oem/build-radiobot.ps1` | Builds the solution. |
-| `windows-oem/package-installer.ps1` | Builds `RadioBot-setup.exe`. |
+| `windows-oem/package-installer.ps1` | Builds `RadioBot-setup.exe`; defaults to a standalone payload. |
+| `windows-oem/package-standalone.ps1` | Assembles the installer payload from build output and current third-party tool downloads. |
 
 ## What is different from the Docker build?
 
@@ -100,6 +101,6 @@ This is normal on a fresh machine. The setup step can take 15–30 minutes. The 
 
 Make sure the `builtin-baseline` in `vcpkg.json` has not been altered and that your network can reach `github.com`. If a `radiobot-windows-deps.7z` archive is available, use it to skip the vcpkg build.
 
-### Packaging fails because the official installer cannot be downloaded
+### Packaging needs an official installer
 
-Place the official installer (`official-installer.exe`) in the repository root. The packaging script will use it instead of downloading from the upstream URL.
+By default `windows-oem/package-installer.ps1` builds the installer from the local build output without downloading anything. If you want to include project-specific extras from a previous installer, place `official-installer.exe` in the repository root and run the package step with `-UseOfficialInstaller`.

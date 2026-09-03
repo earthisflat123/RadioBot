@@ -2,215 +2,158 @@
 param(
     [string]$OutFile = "",
     [string]$RepoDir = "C:\RadioBot",
-    [string]$OEM = "C:\OEM"
+    [string]$OEM = "C:\OEM",
+    [switch]$UseOfficialInstaller
 )
 
 #Requires -Version 5.1
 
 <#
 .SYNOPSIS
-    Builds a RadioBot Windows installer inside the VM.
+    Builds a RadioBot Windows installer inside the VM or on a native Windows
+    build host.
 
 .DESCRIPTION
-    This script merges the freshly built RadioBot binaries (C:\RadioBot\v5\Output)
-    with the official extra files from the original installer payload, then builds
-    an NSIS installer named C:\RadioBot\RadioBot-setup.exe.
+    By default the script builds a standalone installer from the freshly built
+    output tree (C:\RadioBot\v5\Output), generates the language database,
+    downloads current versions of bundled third-party tools, and compiles the
+    NSIS installer. No previous RadioBot release is downloaded.
 
-    The original installer is loaded in this order:
-      1. Z:\official-installer.exe     (host-provided or previously cached file)
-      2. C:\RadioBot\official-installer.exe (already in the VM)
-      3. $env:RADIOSBOT_OFFICIAL_INSTALLER_URL (host-configured URL)
-      4. $OfficialUrl                    (default upstream URL)
-
-    When a host shared drive (Z:) is reachable, both the downloaded original
-    installer and the final RadioBot-setup.exe are cached there so they survive
-    VM recreation. A local copy is always kept for immediate use.
-
-    The NSIS source script is in the same C:\OEM directory (copied from
-    windows-oem/RadioBot.nsi) and uses /D command-line defines for the payload
-    and output paths.
+    If an existing official installer is provided (cached in the repo root or on
+    the host shared drive) and -UseOfficialInstaller is specified, the script
+    can still extract that file and overlay the new build output on top of it.
+    This is a legacy opt-in for users who already have an installer and want to
+    preserve project-specific extras not otherwise available.
 #>
 
 $ErrorActionPreference = "Stop"
+$ProgressPreference = 'SilentlyContinue'
 
-$OutputDir    = "$RepoDir\v5\Output"
-$PayloadDir   = "$RepoDir\payload-official"
 $LocalInstall = "$RepoDir\official-installer.exe"
-$OEMDir       = $OEM
-$NsisFile     = "$OEMDir\RadioBot.nsi"
-$SevenZip     = "C:\Program Files\7-Zip\7z.exe"
-$MakeNsis     = "C:\Program Files (x86)\NSIS\makensis.exe"
-$OfficialUrl  = "https://www.shoutirc.com/index.php?mod=Downloads&action=download&id=64"
 
 function Write-Log($msg) {
     $ts = Get-Date -Format "yyyy-MM-dd HH:mm:ss"
     Write-Host "$ts $msg"
 }
 
-# 1. Map the host shared drive to Z: if it is not already available, so we can
-#    cache the original installer and the final setup on the host.
-if (-not (Test-Path "Z:\")) {
-    try {
-        & cmd /c "net use Z: \\host.lan\Data /y" 2>&1 | Out-Null
-    } catch {
-        Write-Warning "Could not map Z: drive: $_"
+function Find-OfficialInstaller() {
+    # Prefer a host-shared or locally cached installer. Do not download one.
+    if (-not (Test-Path "Z:\")) {
+        try {
+            & cmd /c "net use Z: \\host.lan\Data /y" 2>&1 | Out-Null
+        } catch {
+            Write-Warning "Could not map Z: drive: $_"
+        }
     }
-}
-$HostRoot = if (Test-Path "Z:\") { "Z:" } else { $null }
-$HostInstall = if ($HostRoot) { "$HostRoot\official-installer.exe" } else { $null }
-$HostArtifacts = if ($HostRoot) { "$HostRoot\artifacts" } else { $null }
-$FallbackArtifacts = "$RepoDir\artifacts"
+    $HostInstall = if (Test-Path "Z:\") { "Z:\official-installer.exe" } else { $null }
 
-# 2. Determine the installer output path. Prefer the host shared drive, but
-#    always write a local copy as well.
-if ([string]::IsNullOrWhiteSpace($OutFile)) {
-    $OutFile = "$FallbackArtifacts\RadioBot-setup.exe"
-}
-
-# 3. Ensure NSIS is installed.
-Write-Output "__PROGRESS_TOTAL__ 4"
-
-if (-not (Test-Path $MakeNsis)) {
-    Write-Log "NSIS not found, installing via Chocolatey..."
-    $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
-    & $choco install -y nsis --no-progress
-    if ($LASTEXITCODE -ne 0) { throw "Failed to install NSIS" }
-}
-
-# 4. Ensure we have the official installer payload.
-# Prefer a cached copy on the host shared drive, then a local one, then a
-# configured URL, then the default upstream URL.
-$needDownload = $true
-$InstallerSrc = $LocalInstall
-if ($HostInstall -and (Test-Path $HostInstall)) {
-    Write-Log "Using host-cached installer $HostInstall"
-    Copy-Item $HostInstall $InstallerSrc -Force
-    $needDownload = $false
-}
-if ($needDownload -and (Test-Path $InstallerSrc)) {
-    Write-Log "Using existing local installer $InstallerSrc"
-    $needDownload = $false
-}
-if ($needDownload -and $env:RADIOSBOT_OFFICIAL_INSTALLER_URL) {
-    Write-Log "Downloading official installer from $env:RADIOSBOT_OFFICIAL_INSTALLER_URL..."
-    $downloadTarget = if ($HostInstall) { $HostInstall } else { $InstallerSrc }
-    Invoke-WebRequest -Uri $env:RADIOSBOT_OFFICIAL_INSTALLER_URL -OutFile $downloadTarget -UserAgent "Mozilla/5.0"
-    if ($HostInstall -and (Test-Path $HostInstall) -and ($downloadTarget -ne $InstallerSrc)) {
-        Copy-Item $HostInstall $InstallerSrc -Force
+    if ($UseOfficialInstaller -and $HostInstall -and (Test-Path $HostInstall)) {
+        Write-Log "Using host-cached official installer $HostInstall"
+        Copy-Item $HostInstall $LocalInstall -Force
+        return $LocalInstall
     }
-    $needDownload = $false
-}
-if ($needDownload) {
-    Write-Log "Official installer not found, downloading from $OfficialUrl..."
-    $downloadTarget = if ($HostInstall) { $HostInstall } else { $InstallerSrc }
-    Invoke-WebRequest -Uri $OfficialUrl -OutFile $downloadTarget -UserAgent "Mozilla/5.0"
-    if ($HostInstall -and (Test-Path $HostInstall) -and ($downloadTarget -ne $InstallerSrc)) {
-        Copy-Item $HostInstall $InstallerSrc -Force
+    if ($UseOfficialInstaller -and (Test-Path $LocalInstall)) {
+        Write-Log "Using local official installer $LocalInstall"
+        return $LocalInstall
     }
+    return $null
 }
 
-# If the cache exists but the local copy is missing, copy it locally.
-if ($HostInstall -and (Test-Path $HostInstall) -and -not (Test-Path $InstallerSrc)) {
-    Copy-Item $HostInstall $InstallerSrc -Force
-}
+function Build-FromOfficialInstaller() {
+    param([string]$InstallerPath)
 
-# Always rebuild the payload from the chosen installer so language files and
-# other extras from a newer/different official installer are picked up.
-if (Test-Path $PayloadDir) {
-    Write-Log "Removing stale payload directory $PayloadDir..."
-    Remove-Item $PayloadDir -Recurse -Force
-}
-Write-Log "Extracting official installer to $PayloadDir..."
-New-Item -ItemType Directory -Force -Path $PayloadDir | Out-Null
-& $SevenZip x $InstallerSrc -o"$PayloadDir" -y
-if ($LASTEXITCODE -ne 0) { throw "Failed to extract official installer" }
-$extracted = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
-Write-Log "Extracted $extracted files to payload directory."
-# The 7-Zip extraction also creates a $PLUGINSDIR folder from the installer's
-# temp plugin files. It must not be installed to the target directory.
-Remove-Item -LiteralPath "$PayloadDir\`$PLUGINSDIR" -Recurse -Force -ErrorAction SilentlyContinue
-$afterRemove = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
-Write-Log "After removing `$PLUGINSDIR: $afterRemove files."
-Write-Output "__PROGRESS__ 1 4"
+    $SevenZip     = "C:\Program Files\7-Zip\7z.exe"
+    $MakeNsis     = "C:\Program Files (x86)\NSIS\makensis.exe"
+    $PayloadDir   = "$RepoDir\payload-official"
+    $NsisFile     = "$OEM\RadioBot.nsi"
+    $OutputDir    = "$RepoDir\v5\Output"
+    $FallbackArtifacts = "$RepoDir\artifacts"
 
-# 3. Overlay the new build output on top of the payload. This preserves all the
-#    official extra files (langsrc, trivia, sam_scripts, DJ Package, .pal files,
-#    qstat.exe, ffmpeg.exe, yt-dlp.exe, etc.) while replacing the built binaries.
-Write-Log "Overlaying build output onto payload..."
-$beforeOverlay = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
-Write-Log "Payload contains $beforeOverlay files before overlay."
-& C:\Windows\System32\robocopy.exe $OutputDir $PayloadDir /E /COPY:DAT /MT:4 /R:2 /W:2 /NDL /NFL
-$afterOverlay = (Get-ChildItem $PayloadDir -Recurse -File | Measure-Object).Count
-Write-Log "Payload contains $afterOverlay files after overlay."
-if ($LASTEXITCODE -ge 8) { throw "robocopy overlay failed" }
-Write-Output "__PROGRESS__ 2 4"
-
-# 3b. Remove only the temporary NSIS plugin directory that 7-Zip extracts from
-#     the official installer. All official extra files (DJ Package, language
-#     data, trivia, sam_scripts, legacy tools, etc.) are preserved. The new
-#     build output was already overlaid on top, so any files with the same
-#     name now contain the freshly built version.
-$djPackage = Join-Path $PayloadDir "DJ Package"
-if (Test-Path $djPackage) {
-    # Remove any old MusicScanner binaries inside the DJ Package that would
-    # otherwise be mistaken for the current build's main MusicScanner.exe.
-    @("MusicScanner.exe", "MusicScanner2.exe") | ForEach-Object {
-        $p = Join-Path $djPackage $_
-        if (Test-Path $p) { Remove-Item $p -Force; Write-Log "Pruned DJ Package\$_" }
+    if (-not (Test-Path $MakeNsis)) {
+        Write-Log "NSIS not found, installing via Chocolatey..."
+        $choco = "C:\ProgramData\chocolatey\bin\choco.exe"
+        & $choco install -y nsis --no-progress
+        if ($LASTEXITCODE -ne 0) { throw "Failed to install NSIS" }
     }
-}
+    if (-not (Test-Path $SevenZip)) { throw "7-Zip is required to extract the official installer" }
 
-# 4. Ensure the runtime config/language files are at the payload root.
-$IrcbotText = "$RepoDir\ircbot.text"
-$IrcbotPem  = "$RepoDir\ircbot.pem"
-$ClientPem  = "$RepoDir\Client3\client.pem"
-if (Test-Path $IrcbotText) { Copy-Item $IrcbotText $PayloadDir -Force }
-if (Test-Path $IrcbotPem)  { Copy-Item $IrcbotPem  $PayloadDir -Force }
-if (Test-Path $ClientPem)  { Copy-Item $ClientPem  $PayloadDir -Force }
+    Write-Output "__PROGRESS_TOTAL__ 4"
 
-# 5. Copy the icon to the payload root as shoutirc.ico (the installer uses it).
-$SrcIcon = "$RepoDir\client\ca.ico"
-if (Test-Path $SrcIcon) { Copy-Item $SrcIcon "$PayloadDir\shoutirc.ico" -Force }
+    if (Test-Path $PayloadDir) {
+        Write-Log "Removing stale payload directory $PayloadDir..."
+        Remove-Item $PayloadDir -Recurse -Force
+    }
+    Write-Log "Extracting official installer to $PayloadDir..."
+    New-Item -ItemType Directory -Force -Path $PayloadDir | Out-Null
+    & $SevenZip x $InstallerPath -o"$PayloadDir" -y
+    if ($LASTEXITCODE -ne 0) { throw "Failed to extract official installer" }
+    Remove-Item -LiteralPath "$PayloadDir\`$PLUGINSDIR" -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Output "__PROGRESS__ 1 4"
 
-# 6. Copy the NSIS source to C:\OEM (when OEM is not already the repo's windows-oem folder).
-New-Item -ItemType Directory -Force -Path $OEMDir | Out-Null
-$RepoOEM = "$RepoDir\windows-oem"
-$RepoOEMFull = (Get-Item $RepoOEM -ErrorAction SilentlyContinue).FullName
-$OEMDirFull  = (Get-Item $OEMDir).FullName
-if ((Test-Path "$RepoOEM\RadioBot.nsi") -and ($RepoOEMFull -ne $OEMDirFull)) {
-    Copy-Item "$RepoOEM\RadioBot.nsi" $OEMDir -Force
-}
+    Write-Log "Overlaying build output onto payload..."
+    & C:\Windows\System32\robocopy.exe $OutputDir $PayloadDir /E /COPY:DAT /MT:4 /R:2 /W:2 /NDL /NFL
+    if ($LASTEXITCODE -ge 8) { throw "robocopy overlay failed" }
+    Write-Output "__PROGRESS__ 2 4"
 
-# 7. Ensure the output directory exists.
-New-Item -ItemType Directory -Force -Path (Split-Path $OutFile -Parent) | Out-Null
+    $djPackage = Join-Path $PayloadDir "DJ Package"
+    if (Test-Path $djPackage) {
+        @("MusicScanner.exe", "MusicScanner2.exe") | ForEach-Object {
+            $p = Join-Path $djPackage $_
+            if (Test-Path $p) { Remove-Item $p -Force; Write-Log "Pruned DJ Package\$_" }
+        }
+    }
 
-# 8. Build the installer from the template .nsi in C:\OEM.
-Write-Log "Building installer with makensis..."
-& $MakeNsis "/DPAYLOADDIR=$PayloadDir" "/DOUTFILE=$OutFile" $NsisFile
-if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
-Write-Output "__PROGRESS__ 3 4"
+    $IrcbotText = "$RepoDir\ircbot.text"
+    $IrcbotPem  = "$RepoDir\ircbot.pem"
+    $ClientPem  = "$RepoDir\Client3\client.pem"
+    if (Test-Path $IrcbotText) { Copy-Item $IrcbotText $PayloadDir -Force }
+    if (Test-Path $IrcbotPem)  { Copy-Item $IrcbotPem  $PayloadDir -Force }
+    if (Test-Path $ClientPem)  { Copy-Item $ClientPem  $PayloadDir -Force }
 
-if (Test-Path $OutFile) {
-    Write-Log "Installer built: $OutFile"
+    $SrcIcon = "$RepoDir\client\ca.ico"
+    if (Test-Path $SrcIcon) { Copy-Item $SrcIcon "$PayloadDir\shoutirc.ico" -Force }
+
+    if ([string]::IsNullOrWhiteSpace($OutFile)) {
+        $OutFile = "$FallbackArtifacts\RadioBot-setup.exe"
+    }
+    New-Item -ItemType Directory -Force -Path (Split-Path $OutFile -Parent) | Out-Null
+
+    if ((Test-Path "$RepoDir\windows-oem\RadioBot.nsi") -and ($RepoDir -ne $OEM)) {
+        Copy-Item "$RepoDir\windows-oem\RadioBot.nsi" $OEM -Force
+    }
+
+    Write-Log "Building installer with makensis..."
+    & $MakeNsis "/DPAYLOADDIR=$PayloadDir" "/DOUTFILE=$OutFile" $NsisFile
+    if ($LASTEXITCODE -ne 0) { throw "makensis failed" }
+    Write-Output "__PROGRESS__ 3 4"
+
+    if (-not (Test-Path $OutFile)) { throw "Installer output not found" }
     $size = (Get-Item $OutFile).Length / 1MB
-    Write-Log "Size: $size MB"
+    Write-Log "Installer built: $OutFile ($size MB)"
 
-    # Cache the final installer on the host shared drive if available.
-    if ($HostArtifacts) {
+    if (Test-Path "Z:\") {
+        $HostArtifacts = "Z:\artifacts"
         New-Item -ItemType Directory -Force -Path $HostArtifacts | Out-Null
         $hostOut = "$HostArtifacts\$(Split-Path -Leaf $OutFile)"
         Copy-Item $OutFile $hostOut -Force
         Write-Log "Cached installer on host shared drive: $hostOut"
     }
+    Write-Output "__PROGRESS_DONE__"
+}
+
+# --- Main ---
+$installer = Find-OfficialInstaller
+if ($installer) {
+    Build-FromOfficialInstaller -InstallerPath $installer
 } else {
-    throw "Installer output not found"
+    if ($UseOfficialInstaller) {
+        Write-Warning "No official installer was found and -UseOfficialInstaller was set. Falling back to standalone packaging."
+    }
+    $standalone = "$OEM\package-standalone.ps1"
+    if (-not (Test-Path $standalone)) {
+        # Native builds use the repo's windows-oem directory.
+        $standalone = "$RepoDir\windows-oem\package-standalone.ps1"
+    }
+    if (-not (Test-Path $standalone)) { throw "package-standalone.ps1 not found" }
+    & $standalone -OutFile $OutFile -RepoDir $RepoDir -OEM $OEM
 }
-
-# Cache the original installer on the host shared drive if available and not
-# already there, so it survives VM recreation.
-if ($HostInstall -and (Test-Path $InstallerSrc) -and (-not (Test-Path $HostInstall) -or (Get-Item $HostInstall).Length -ne (Get-Item $InstallerSrc).Length)) {
-    Copy-Item $InstallerSrc $HostInstall -Force
-    Write-Log "Cached official installer on host shared drive: $HostInstall"
-}
-
-Write-Output "__PROGRESS_DONE__"
