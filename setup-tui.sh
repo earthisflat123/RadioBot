@@ -128,6 +128,20 @@ if wt --title "$TITLE — IRC Server" \
         "2" "Skip certificate verification") || exit 0
 fi
 
+SASL_USER=""
+SASL_PASS=""
+if wt --title "$TITLE — SASL" \
+    --yesno "Authenticate with SASL during connect?\n\nThis logs in to your NickServ account before the bot\nis fully on the network, instead of messaging NickServ\nafterwards (networks like Libera recommend it).\n\nOnly enable if the account already exists. With SASL on,\nthe Auto_Identify plugin is not needed." 14 $W; then
+    SASL_USER=$(wt --title "$TITLE — SASL" \
+        --inputbox "NickServ account name:" 8 $W "$BOT_NICK") || exit 0
+    SASL_PASS=$(wt --title "$TITLE — SASL" \
+        --passwordbox "NickServ account password:" 8 $W) || exit 0
+    if [ -z "$SASL_USER" ] || [ -z "$SASL_PASS" ]; then
+        SASL_USER=""
+        SASL_PASS=""
+    fi
+fi
+
 # ========== STREAMING SERVER ==========
 whiptail --title "$TITLE" --msgbox \
 "Next: Streaming Server
@@ -167,13 +181,17 @@ if [[ "$SS_TYPE" == "icecast" || "$SS_TYPE" == "steamcast" ]]; then
 fi
 
 # ========== PLUGINS ==========
+# SASL already handles NickServ auth during connect, so Auto_Identify is
+# only suggested by default when SASL was not configured.
+AUTOIDENT_DEF="ON"
+[ -n "$SASL_USER" ] && AUTOIDENT_DEF="OFF"
 PLUGIN_CHOICES=$(wt --title "$TITLE — Plugins" \
     --checklist \
 "Select plugins to enable.
 (Space to toggle, Enter to confirm)
 " 24 $W 16 \
     "Users_Shared"   "Remote shared user DB (needs another bot's admin port)" OFF \
-    "Auto_Identify"  "Auto NickServ identify on connect"        ON  \
+    "Auto_Identify"  "Auto NickServ identify on connect (not needed with SASL)" $AUTOIDENT_DEF \
     "ChanAdmin"      "Channel moderation commands"              ON  \
     "Welcome"        "Welcome message on join"                  OFF \
     "Logging"        "Log IRC traffic to file"                  OFF \
@@ -197,7 +215,7 @@ PLUGIN_LIST="${PLUGIN_CHOICES//\"/}"
 # left blank rather than loading a plugin that just fails every boot.
 AUTOIDENT_PASS=""
 AUTOIDENT_NICKSERV="NickServ"
-if has_plugin "Auto_Identify"; then
+if has_plugin "Auto_Identify" && [ -z "$SASL_USER" ]; then
     AUTOIDENT_PASS=$(wt --title "$TITLE — Auto NickServ Identify" \
         --passwordbox "NickServ password (blank = disable this plugin):" 8 $W) || exit 0
 fi
@@ -256,6 +274,7 @@ SUMMARY="Ready to write config:
   Bot nick  : $BOT_NICK
   IRC       : ${IRC_HOST}:${IRC_PORT}  channel ${IRC_CHAN}
   TLS       : ${IRC_TLS}
+  SASL      : ${SASL_USER:+yes (account ${SASL_USER})}${SASL_USER:-no}
   Streaming : ${SS_TYPE}  ${SS_HOST}:${SS_PORT}
   Plugins   : ${ACTIVE_PLUGINS[*]}"
 
@@ -300,6 +319,9 @@ EOF
 [ -n "$IRC_PASS" ] && echo "        Pass $IRC_PASS"
 cat <<EOF
         TLS $IRC_TLS
+EOF
+[ -n "$SASL_USER" ] && printf '        SASLUser %s\n        SASLPass %s\n' "$SASL_USER" "$SASL_PASS"
+cat <<EOF
 
         Channel0 {
             Channel $IRC_CHAN

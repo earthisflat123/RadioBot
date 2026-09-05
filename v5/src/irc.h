@@ -68,6 +68,8 @@ public:
 	std::string base_nick;
 	std::string host;
 	std::string pass;
+	std::string sasl_user;
+	std::string sasl_pass;
 	std::string bindip;
 	std::string server;
 	std::string network;

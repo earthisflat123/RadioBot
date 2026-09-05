@@ -40,6 +40,17 @@ prompt IRC_CHAN  "Channel to join (e.g. #music)" ""
 read -rp "Server password [blank = none]: " IRC_PASS
 read -rp "TLS (0=no, 1=yes, 2=yes skip cert verify) [0]: " IRC_TLS
 IRC_TLS="${IRC_TLS:-0}"
+SASL_USER=""
+SASL_PASS=""
+read -rp "Authenticate with SASL during connect? (NickServ login, needs an existing account) [y/N]: " SASL_USE
+if [[ "$SASL_USE" =~ ^[Yy] ]]; then
+    prompt SASL_USER "NickServ account name" "$BOT_NICK"
+    read -rp "NickServ account password: " SASL_PASS
+    if [ -z "$SASL_USER" ] || [ -z "$SASL_PASS" ]; then
+        SASL_USER=""
+        SASL_PASS=""
+    fi
+fi
 echo ""
 
 echo "=== Streaming Server ==="
@@ -108,6 +119,9 @@ EOF
 [ -n "$IRC_PASS" ] && echo "        Pass $IRC_PASS"
 cat <<EOF
         TLS $IRC_TLS
+EOF
+[ -n "$SASL_USER" ] && printf '        SASLUser %s\n        SASLPass %s\n' "$SASL_USER" "$SASL_PASS"
+cat <<EOF
 
         Channel0 {
             Channel $IRC_CHAN

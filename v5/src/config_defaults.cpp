@@ -134,6 +134,8 @@ void IRCNETS::Reset() {
 	cur_nick.clear();
 	host.clear();
 	pass.clear();
+	sasl_user.clear();
+	sasl_pass.clear();
 	bindip.clear();
 	network.clear();
 	server.clear();

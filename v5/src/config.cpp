@@ -408,6 +408,14 @@ bool SyncConfig(Universal_Config * con) {
 				if (val && val->type == DS_TYPE_STRING) {
 					config.ircnets[i].pass = val->pString;
 				}
+				val = con->GetSectionValue(srv, "SASLUser");
+				if (val && val->type == DS_TYPE_STRING) {
+					config.ircnets[i].sasl_user = val->pString;
+				}
+				val = con->GetSectionValue(srv, "SASLPass");
+				if (val && val->type == DS_TYPE_STRING) {
+					config.ircnets[i].sasl_pass = val->pString;
+				}
 				val = con->GetSectionValue(srv, "On512");
 				if (val && val->type == DS_TYPE_STRING) {
 					config.ircnets[i].on512 = val->pString;

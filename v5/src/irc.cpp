@@ -67,6 +67,12 @@
 #define RPL_STARTTLS "670"
 #define ERR_STARTTLS "691"
 
+#define RPL_SASLSUCCESS "903"
+#define ERR_SASLFAIL "904"
+#define ERR_SASLTOOLONG "905"
+#define ERR_SASLABORTED "906"
+#define ERR_SASLALREADY "907"
+
 int irc_read_line(int netno, char * buf, char * buf3, int * pbufind) {
 	int bufcnt = *pbufind;
 
@@ -769,9 +775,13 @@ bool irc_login(int netno, char * buf, char * recvbuf) {
 		}
 	}
 
-	if (config.ircnets[netno].enable_cap) {
+	bool want_sasl = (config.ircnets[netno].sasl_user.length() > 0);
+	if (config.ircnets[netno].enable_cap || want_sasl) {
+		if (want_sasl && config.ircnets[netno].ssl == 0) {
+			ib_printf(_("[irc-%d] WARNING: SASL PLAIN sends the password base64-encoded over an unencrypted connection - enable TLS for this server!\n"), netno);
+		}
 		bSend(config.ircnets[netno].sock, "CAP LS\r\n", 0, PRIORITY_IMMEDIATE);
-		bool cap_was_support = false;
+		bool cap_was_support = false, sasl_requested = false;
 		config.ircnets[netno].last_recv = time(NULL);
 		int bufind = 0;
 		while (1) {
@@ -810,25 +820,100 @@ bool irc_login(int netno, char * buf, char * recvbuf) {
 				ib_printf(_("[irc-%d] %s\n"), netno, parms[1]);
 			} else if (!stricmp(cmd, "CAP")) {
 				cap_was_support = true;
-				char * list = NULL;
-				if (nparms >= 3 && !stricmp(parms[0], "*") && !stricmp(parms[1], "LS")) {
+				char * sub = NULL, * list = NULL;
+				if (nparms >= 3 && !stricmp(parms[0], "*")) {
+					sub = parms[1];
 					list = parms[2];
-				} else if (nparms >= 2 && !stricmp(parms[0], "LS")) {
+				} else if (nparms >= 2) {
+					sub = parms[0];
 					list = parms[1];
 				}
-				if (list != NULL) {
-					//ib_printf("cap list: %s\n", list);
+				if (sub != NULL && !stricmp(sub, "LS")) {
+					if (list == NULL) { break; }
+					bool twitch_offered = false, sasl_offered = false;
 					char * p2 = NULL;
 					char * cap = strtok_r(list, " ", &p2);
 					while (cap != NULL) {
 						if (!stricmp(cap, "twitch.tv/membership")) {
-							stringstream sstr;
-							sstr << "CAP REQ :" << cap << "\r\n";
-							bSend(config.ircnets[netno].sock, sstr.str().c_str(), 0, PRIORITY_IMMEDIATE);
+							twitch_offered = true;
+						} else if (!strnicmp(cap, "sasl", 4) && (cap[4] == 0 || cap[4] == '=')) {
+							sasl_offered = true;
 						}
 						cap = strtok_r(NULL, " ", &p2);
 					}
+					stringstream req;
+					req << "CAP REQ :";
+					bool req_any = false;
+					if (twitch_offered) {
+						req << "twitch.tv/membership";
+						req_any = true;
+					}
+					if (want_sasl) {
+						if (sasl_offered) {
+							if (req_any) { req << " "; }
+							req << "sasl";
+							req_any = sasl_requested = true;
+						} else {
+							ib_printf(_("[irc-%d] Server does not offer SASL authentication.\n"), netno);
+						}
+					}
+					if (req_any) {
+						req << "\r\n";
+						bSend(config.ircnets[netno].sock, req.str().c_str(), 0, PRIORITY_IMMEDIATE);
+						continue;
+					}
+					break;
+				} else if (sub != NULL && !stricmp(sub, "ACK")) {
+					bool ack_sasl = false;
+					if (list != NULL) {
+						char * p2 = NULL;
+						char * cap = strtok_r(list, " ", &p2);
+						while (cap != NULL) {
+							if (!stricmp(cap, "sasl")) { ack_sasl = true; break; }
+							cap = strtok_r(NULL, " ", &p2);
+						}
+					}
+					if (sasl_requested && ack_sasl) {
+						bSend(config.ircnets[netno].sock, "AUTHENTICATE PLAIN\r\n", 0, PRIORITY_IMMEDIATE);
+						continue;
+					}
+					break;
+				} else if (sub != NULL && !stricmp(sub, "NAK")) {
+					ib_printf(_("[irc-%d] Server refused capability request: %s\n"), netno, (list != NULL) ? list : "");
+					break;
 				}
+			} else if (!stricmp(cmd, "AUTHENTICATE") || !stricmp(from, "AUTHENTICATE")) {
+				// Per spec the server's "+" prompt may arrive without a prefix, in
+				// which case parse_irc_line leaves "AUTHENTICATE" in from and "+"
+				// in cmd.
+				bool is_plus = (parms[0] != NULL && !strcmp(parms[0], "+")) || !strcmp(cmd, "+");
+				if (is_plus && sasl_requested) {
+					std::string payload = config.ircnets[netno].sasl_user;
+					payload += '\0';
+					payload += config.ircnets[netno].sasl_user;
+					payload += '\0';
+					payload += config.ircnets[netno].sasl_pass;
+					char * b64 = (char *)zmalloc(base64_encode_buffer_size(payload.length()) + 8);
+					base64_encode(payload.c_str(), payload.length(), b64);
+					if (strlen(b64) >= 400) {
+						// AUTHENTICATE lines are limited to 400 bytes; credentials
+						// this long are unlikely, but do not send a malformed line.
+						b64[399] = 0;
+						ib_printf(_("[irc-%d] WARNING: SASL credentials are very long, authentication may fail.\n"), netno);
+					}
+					stringstream sstr;
+					sstr << "AUTHENTICATE " << b64 << "\r\n";
+					bSend(config.ircnets[netno].sock, sstr.str().c_str(), 0, PRIORITY_IMMEDIATE);
+					zfree(b64);
+				}
+				continue;
+			} else if (!stricmp(cmd, RPL_SASLSUCCESS)) {
+				const char * smsg = (nparms > 0) ? parms[nparms-1] : NULL;
+				ib_printf(_("[irc-%d] SASL authentication successful%s%s\n"), netno, (smsg != NULL) ? ": " : "", (smsg != NULL) ? smsg : "");
+				break;
+			} else if (!stricmp(cmd, ERR_SASLFAIL) || !stricmp(cmd, ERR_SASLTOOLONG) || !stricmp(cmd, ERR_SASLABORTED) || !stricmp(cmd, ERR_SASLALREADY)) {
+				const char * smsg = (nparms > 0) ? parms[nparms-1] : NULL;
+				ib_printf(_("[irc-%d] SASL authentication failed%s%s - continuing without it\n"), netno, (smsg != NULL) ? ": " : "", (smsg != NULL) ? smsg : "");
 				break;
 			} else if (!stricmp(cmd, ERR_UNKNOWNCOMMAND)) {
 				if (!stricmp(parms[0], "CAP") || !stricmp(parms[1], "CAP")) {
