@@ -38,8 +38,14 @@ data/
 
 # Headless Windows build
 windows-storage/
+windows-storage-win11/
 windows-oem/
 artifacts/
+vcpkg-cache/
+.worktree/
+*.7z
+*.deb
+test-data/mp3s/
 demo-*.tape
 demo-whiptail.gif
 demo-*.gif
