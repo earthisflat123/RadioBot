@@ -105,6 +105,20 @@ RADIOBOT_DATA=/srv/radiobot radiobot
 
 If no `ircbot.conf` exists yet, `radiobot` launches the setup wizard when a terminal is available.
 
+To re-run the setup wizard later (e.g. you canceled it during installation, or want to import an existing `ircbot.conf`):
+
+```bash
+radiobot-setup    # configures ~/.radiobot as your user
+```
+
+This always shows the wizard menu — *run the wizard*, *import an existing `ircbot.conf`*, or *skip* — regardless of whether a config already exists. For the system data directory the install-time wizard uses:
+
+```bash
+sudo RADIOBOT_DATA=/var/lib/radiobot RADIOBOT_START=0 /usr/lib/radiobot/setup-tui.sh
+```
+
+Note: `radiobot` only auto-launches the wizard when no config exists. If `/var/lib/radiobot/ircbot.conf` exists and is readable, it is copied into your data directory on first run instead — so use `radiobot-setup` (or remove that file with sudo) if you want the wizard instead.
+
 The `radiobot` wrapper in `/usr/bin/radiobot` creates a data directory (default `~/.radiobot`, override with `RADIOBOT_DATA`), symlinks `ircbot.text` and `plugins` from `/usr/lib/radiobot`, and then launches the bot from there. This keeps runtime state in a user-writable location while the binaries stay under `/usr/lib/radiobot`.
 
 If you want to run it as a system service from `/var/lib/radiobot`, create a dedicated `radiobot` user and run the bot under that account with `RADIOBOT_DATA=/var/lib/radiobot`; do not run the bot as root or with `sudo`.
