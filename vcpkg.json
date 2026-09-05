@@ -14,7 +14,10 @@
     "libvorbis",
     "libflac",
     "libsndfile",
-    "mp3lame",
+    {
+      "name": "mp3lame",
+      "features": ["frontend"]
+    },
     "wxwidgets",
     "opus",
     "soxr",

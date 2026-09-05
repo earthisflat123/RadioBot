@@ -174,12 +174,13 @@ function Install-ExternalTools() {
         Write-Log "WARNING: Could not install ffmpeg/ffprobe: $_"
     }
 
-    # Official qstat Windows binary from SourceForge. SourceForge redirects to a
-    # mirror; the /download suffix triggers the redirect.
+    # Official qstat Windows binary (win32/x86 build) from the qstat SourceForge
+    # project. SourceForge redirects to a mirror; the /download suffix triggers the
+    # redirect. This matches the qstat shipped in the original RadioBot installer.
     try {
         Invoke-WithRetry -Command {
-            Install-FilesFromZip -Name 'qstat' -Url 'https://sourceforge.net/projects/qstat/files/qstat-2.11-win32.zip/download' -Files @(
-                @{ InternalPath = 'win32\qstat.exe'; Destination = 'qstat.exe' }
+            Install-FilesFromZip -Name 'qstat' -Url 'https://sourceforge.net/projects/qstat/files/qstat/qstat-2.11/qstat-2.11-win32.zip/download' -Files @(
+                @{ InternalPath = 'qstat-2.11-win32\qstat.exe'; Destination = 'qstat.exe' }
             )
         }
     } catch {

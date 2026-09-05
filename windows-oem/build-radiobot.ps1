@@ -182,12 +182,22 @@ try {
     & $MsBuild "$RepoDir\ConfigWizard\ConfigWizard.vcxproj" /p:Configuration=Release /p:Platform=Win32 /p:SolutionDir=$SlnDir\ /v:minimal
     if ($LASTEXITCODE -ne 0) { throw "ConfigWizard build failed" }
 
-    # 11. Stage runtime DLLs next to the binaries so the output is usable.
+    # 11. Stage runtime DLLs and bundled tools next to the binaries so the output is usable.
     $OutputDir = "$RepoDir\v5\Output"
     if (Test-Path $OutputDir) {
         $binSrc = if (Test-Path "$DepsDir\bin") { "$DepsDir\bin" } else { "$VcpkgRoot\bin" }
         if (Test-Path $binSrc) {
             & C:\Windows\System32\robocopy.exe $binSrc $OutputDir *.dll /NDL /NFL /MT:4 /R:3 /W:5
+        }
+
+        # The mp3lame frontend (lame.exe) is installed as a vcpkg tool. Copy it
+        # into the output so the packaged installer can include it.
+        $lamePath = Get-ChildItem -Path "$VcpkgRoot" -Filter 'lame.exe' -Recurse -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($lamePath) {
+            Copy-Item $lamePath.FullName "$OutputDir\lame.exe" -Force -ErrorAction SilentlyContinue
+            Write-Host "Copied lame.exe to output from $($lamePath.FullName)"
+        } else {
+            Write-Warning "lame.exe not found in vcpkg installation; the packaged installer will not include it."
         }
     }
 
