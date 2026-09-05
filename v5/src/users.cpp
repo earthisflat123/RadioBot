@@ -770,6 +770,22 @@ uint32 GetUserCount() {
 }
 
 /**
+ * Checks whether a column exists in a table (SQLite PRAGMA table_info).
+ */
+static bool DBColumnExists(const char * table, const char * col) {
+	std::ostringstream sstr;
+	sstr << "PRAGMA table_info(" << table << ")";
+	sql_rows res = GetTable(sstr.str().c_str());
+	for (sql_rows::const_iterator x = res.begin(); x != res.end(); x++) {
+		sql_row row = x->second;
+		if (!stricmp(row["name"].c_str(), col)) {
+			return true;
+		}
+	}
+	return false;
+}
+
+/**
  * Makes sure user tables exist, wipes temporary users.
  */
 void InitDatabase() {
@@ -800,6 +816,37 @@ void InitDatabase() {
 		db_version = 3;
 	}
 #endif
+
+	// Legacy ircbot.db files can predate columns that CREATE TABLE IF NOT
+	// EXISTS cannot retrofit (e.g. Flags, which superseded the numeric Level).
+	// A missing column breaks INSERTs/UPDATEs that name it - e.g. adding a
+	// new DJ or setting their password - so check for and add whatever is
+	// missing regardless of the Version table's bookkeeping.
+	struct { const char * col; const char * decl; } user_cols[] = {
+		{ "Pass",         "TEXT COLLATE NOCASE" },
+		{ "Level",        "INT" },
+		{ "Flags",        "INT UNSIGNED" },
+		{ "Created",      "INT UNSIGNED" },
+		{ "Seen",         "INT UNSIGNED" },
+		{ "Temp",         "INT" },
+		{ "LastHostmask", "TEXT COLLATE NOCASE" },
+	};
+	for (size_t i=0; i < sizeof(user_cols)/sizeof(user_cols[0]); i++) {
+		if (!DBColumnExists("Users", user_cols[i].col)) {
+			ib_printf(_("%s: Upgrading legacy user database - adding missing column Users.%s\n"), IRCBOT_NAME, user_cols[i].col);
+			std::ostringstream sstr2;
+			sstr2 << "ALTER TABLE Users ADD COLUMN " << user_cols[i].col << " " << user_cols[i].decl;
+			Query(sstr2.str().c_str());
+		}
+	}
+	if (!DBColumnExists("UserHostmasks", "Nick")) {
+		ib_printf(_("%s: Upgrading legacy user database - adding missing column UserHostmasks.Nick\n"), IRCBOT_NAME);
+		Query("ALTER TABLE UserHostmasks ADD COLUMN Nick TEXT COLLATE NOCASE");
+	}
+	if (!DBColumnExists("UserHostmasks", "Hostmask")) {
+		ib_printf(_("%s: Upgrading legacy user database - adding missing column UserHostmasks.Hostmask\n"), IRCBOT_NAME);
+		Query("ALTER TABLE UserHostmasks ADD COLUMN Hostmask TEXT COLLATE NOCASE");
+	}
 
 	std::ostringstream sstr;
 	sstr << "SELECT * FROM Users WHERE Temp!=0";

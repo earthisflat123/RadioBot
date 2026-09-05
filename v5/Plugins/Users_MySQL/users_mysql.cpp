@@ -63,6 +63,22 @@ void ConnectMySQL() {
 			conx.Query("ALTER TABLE `IRCBot_Users` MODIFY `Level` TINYINT NOT NULL DEFAULT '0'");
 			conx.Query("ALTER TABLE `IRCBot_Users` MODIFY `Pass` VARBINARY( 255 ) NOT NULL DEFAULT ''");
 			conx.Query("CREATE TABLE IF NOT EXISTS `IRCBot_UserHostmasks` (`ID` INT NOT NULL AUTO_INCREMENT PRIMARY KEY, `Nick` VARCHAR( 64 ) NOT NULL DEFAULT '', `Hostmask` VARCHAR( 255 ) NOT NULL DEFAULT '', UNIQUE uniq_nick_hostmask (Nick,Hostmask));");
+
+			// Rows written while Pass was still VARCHAR can hold AES ciphertext
+			// mangled by charset/collation handling; AES_DECRYPT() of those (or
+			// of anything encrypted under a different EncKey) returns NULL and
+			// the user can never log in. Warn so the admin knows those
+			// passwords must be reset.
+			stringstream qchk;
+			qchk << "SELECT Nick FROM IRCBot_Users WHERE Pass<>'' AND AES_DECRYPT(Pass,'" << mu_config.key << "') IS NULL";
+			MYSQL_RES * cres = conx.Query(qchk.str().c_str());
+			if (cres) {
+				SC_Row crow;
+				while (conx.FetchRow(cres, crow)) {
+					api->ib_printf(_("MySQL Users -> WARNING: stored password for user '%s' could not be decrypted (corrupted while Pass was VARCHAR, or EncKey changed). That user must set a new password (e.g. !chpass) or be re-added.\n"), crow.Get("Nick").c_str());
+				}
+				conx.FreeResult(cres);
+			}
 		} else {
 			api->ib_printf(_("MySQL Users -> Could not connect to MySQL server, disabling MySQL support...\n"));
 		}
@@ -164,13 +180,16 @@ bool auth_user(const char * hostmask, const char * nick, IBM_USEREXTENDED * ue) 
 		stringstream query,query2,query3;
 		query3 << "UPDATE IRCBot_Users SET Seen=" << time(NULL) << " WHERE Nick='" << conx.EscapeString(nick) << "'";
 		conx.Query(query3.str().c_str());
-		query << "SELECT *,AES_DECRYPT(Pass,'" << mu_config.key << "') AS dPass FROM IRCBot_Users WHERE Nick='" << conx.EscapeString(nick) << "'";
+		query << "SELECT *,AES_DECRYPT(Pass,'" << mu_config.key << "') AS dPass,(Pass<>'' AND AES_DECRYPT(Pass,'" << mu_config.key << "') IS NULL) AS PassBad FROM IRCBot_Users WHERE Nick='" << conx.EscapeString(nick) << "'";
 		//bool gotnick = false;
 		MYSQL_RES * res = conx.Query(query.str().c_str());
 		SC_Row row;
 		if (res && conx.FetchRow(res, row)) {
 			strlcpy(ue->nick, row.Get("Nick").c_str(), sizeof(ue->nick));
-			strlcpy(ue->pass, row.Get("dPass").c_str(), sizeof(ue->nick));
+			strlcpy(ue->pass, row.Get("dPass").c_str(), sizeof(ue->pass));
+			if (atoi(row.Get("PassBad").c_str())) {
+				api->ib_printf(_("MySQL Users -> WARNING: could not decrypt stored password for user '%s' (corrupted while Pass was VARCHAR, or EncKey changed). That user must set a new password (e.g. !chpass) or be re-added.\n"), ue->nick);
+			}
 			ue->flags = atoul(row.Get("Flags").c_str());
 //			ue->seen = atoi64(conx.GetValue(&row, "Seen"));
 			if (ue->flags == 0) {
