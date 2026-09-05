@@ -1,0 +1,227 @@
+# Build a .deb package of RadioBot for a Debian/Ubuntu base image.
+#
+# Usage:
+#   docker build -f Dockerfile.deb --build-arg BASE_IMAGE=debian:trixie \
+#       --build-arg DISTRO_TAG=trixie -t radiobot-deb-trixie .
+#   docker run --rm -v $(pwd):/out radiobot-deb-trixie
+#
+# Supported BASE_IMAGE / DISTRO_TAG pairs (see build-deb.sh):
+#   debian:bookworm / bookworm, debian:trixie / trixie,
+#   ubuntu:22.04 / jammy, ubuntu:24.04 / noble
+
+ARG BASE_IMAGE=debian:trixie
+
+FROM ${BASE_IMAGE} AS builder
+
+ENV DEBIAN_FRONTEND=noninteractive
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends ca-certificates && \
+    # Debian needs contrib/non-free for libfaac-dev; Ubuntu images already
+    # ship with universe+multiverse enabled.
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's/^Components: main$/Components: main contrib non-free non-free-firmware/' \
+            /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    apt-get update
+
+# Install build dependencies matching the project's README lists, adjusted per
+# distro. wxWidgets is 3.0 on Ubuntu 22.04 and 3.2 everywhere newer.
+RUN set -e; \
+    apt-get install -y --no-install-recommends libwxgtk3.2-dev || \
+    apt-get install -y --no-install-recommends libwxgtk3.0-gtk3-dev; \
+    apt-get install -y --no-install-recommends \
+    build-essential cmake git protobuf-compiler \
+    libssl-dev libsqlite3-dev libtag1-dev libmp3lame-dev \
+    libogg-dev libvorbis-dev libsndfile1-dev libavcodec-dev libavformat-dev \
+    libcurl4-openssl-dev libmpg123-dev libresample1-dev \
+    libfaad-dev libncurses-dev libphysfs-dev libprotobuf-dev \
+    default-libmysqlclient-dev libfaac-dev libopus-dev libloudmouth1-dev \
+    libdbus-glib-1-dev libmuparser-dev libsoxr-dev libz-dev \
+    liblua5.4-dev wget \
+    dpkg-dev
+
+# The Trivia plugin needs PCRE1. Where the distro still ships libpcre3-dev
+# (bookworm, jammy, noble) use it; otherwise (trixie) build a static PCRE1
+# from source so the plugin links without a runtime dependency.
+RUN set -e; \
+    if ! apt-get install -y --no-install-recommends libpcre3-dev; then \
+        cd /tmp && \
+        wget -q https://sourceforge.net/projects/pcre/files/pcre/8.45/pcre-8.45.tar.gz/download -O pcre-8.45.tar.gz && \
+        tar xzf pcre-8.45.tar.gz && \
+        cd pcre-8.45 && \
+        ./configure --prefix=/usr/local --disable-shared --enable-static --with-pic CFLAGS="-fPIC -O2" && \
+        make -j"$(nproc)" && \
+        make install && \
+        rm -rf /tmp/pcre-8.45*; \
+    fi; \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /src
+COPY . .
+
+# Build RadioBot. The `add_checksum` target must be built before the bot because
+# the main build embeds its output.
+ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig
+# Newer glibc (e.g. Trixie's 2.41) needs _DEFAULT_SOURCE for
+# getpid/strdup/strcasecmp etc. in the bundled libzip code; harmless elsewhere.
+RUN mkdir build && cd build && \
+    cmake -DCMAKE_C_FLAGS="-D_DEFAULT_SOURCE" -DCMAKE_CXX_FLAGS="-D_DEFAULT_SOURCE" .. && \
+    make add_checksum && \
+    make -j"$(nproc)" && \
+    mkdir -p /src/build/debian && \
+    cat > /src/build/debian/control <<'EOF'
+Source: radiobot
+Section: net
+Priority: optional
+Maintainer: RadioBot <radiobot@example.com>
+
+Package: radiobot
+Architecture: amd64
+Depends: ${shlibs:Depends}
+Description: RadioBot IRC bot
+ RadioBot is an IRC bot for internet radio stations.
+EOF
+
+# Compute shlibs:Depends while all runtime libraries are still installed.
+RUN cd /src/build && \
+    dpkg-shlibdeps -O \
+        -e /src/build/Output/radiobot \
+        /src/build/Output/plugins/*.so > /src/build/shlibs-depends.txt
+
+# Package stage: build a .deb from a staging directory.
+FROM ${BASE_IMAGE}
+
+ENV DEBIAN_FRONTEND=noninteractive
+ARG VERSION=5.0.0
+ARG DISTRO_TAG=trixie
+ENV PKG_VERSION=${VERSION}-1~${DISTRO_TAG}
+
+# Need dpkg-shlibdeps in the package stage to compute shared-library dependencies.
+RUN apt-get update && \
+    if [ -f /etc/apt/sources.list.d/debian.sources ]; then \
+        sed -i 's/^Components: main$/Components: main contrib non-free non-free-firmware/' \
+            /etc/apt/sources.list.d/debian.sources; \
+    fi && \
+    apt-get update && \
+    apt-get install -y --no-install-recommends dpkg-dev && \
+    rm -rf /var/lib/apt/lists/*
+
+WORKDIR /build
+
+# Create the staging directory with the package layout.
+RUN mkdir -p /pkg/radiobot/DEBIAN \
+             /pkg/radiobot/usr/bin \
+             /pkg/radiobot/usr/lib/radiobot/plugins \
+             /pkg/radiobot/usr/share/doc/radiobot \
+             /pkg/radiobot/var/lib/radiobot
+
+# Copy built artifacts.
+COPY --from=builder /src/build/Output/radiobot /pkg/radiobot/usr/lib/radiobot/radiobot
+COPY --from=builder /src/build/Output/plugins/*.so /pkg/radiobot/usr/lib/radiobot/plugins/
+COPY --from=builder /src/ircbot.text /pkg/radiobot/usr/lib/radiobot/ircbot.text
+COPY --from=builder /src/setup-tui.sh /pkg/radiobot/usr/lib/radiobot/setup-tui.sh
+COPY --from=builder /src/COPYING /pkg/radiobot/usr/share/doc/radiobot/copyright
+RUN chmod 755 /pkg/radiobot/usr/lib/radiobot/setup-tui.sh
+
+# Wrapper script that runs the bot from the user's data directory while
+# symlinking static files (ircbot.text and plugins) from /usr/lib/radiobot.
+# RADIOBOT_DATA overrides the default $HOME/.radiobot.
+# On first run (no ircbot.conf) it seeds the config written by the install-time
+# wizard, or launches the setup wizard itself when a terminal is available.
+COPY <<'EOF' /pkg/radiobot/usr/bin/radiobot
+#!/bin/sh
+set -e
+RADIOBOT_DATA="${RADIOBOT_DATA:-$HOME/.radiobot}"
+mkdir -p "$RADIOBOT_DATA"
+cd "$RADIOBOT_DATA"
+[ -e ircbot.text ] || ln -sf /usr/lib/radiobot/ircbot.text ircbot.text
+[ -e plugins ] || ln -sf /usr/lib/radiobot/plugins plugins
+
+if [ ! -f ircbot.conf ]; then
+    if [ -r /var/lib/radiobot/ircbot.conf ] && [ "$RADIOBOT_DATA" != "/var/lib/radiobot" ]; then
+        cp /var/lib/radiobot/ircbot.conf ircbot.conf
+    elif [ -t 0 ] && [ -t 1 ] && command -v whiptail >/dev/null 2>&1; then
+        RADIOBOT_DATA="$RADIOBOT_DATA" RADIOBOT_BIN=/usr/bin/radiobot \
+            /usr/lib/radiobot/setup-tui.sh || true
+        [ -f ircbot.conf ] || exit 0
+    else
+        echo "No ircbot.conf found in $RADIOBOT_DATA." >&2
+        echo "Run 'radiobot-setup' to create one, or copy an existing ircbot.conf there." >&2
+        exit 1
+    fi
+fi
+exec /usr/lib/radiobot/radiobot "$@"
+EOF
+RUN chmod 755 /pkg/radiobot/usr/bin/radiobot
+
+# Standalone entry point to (re-)run the setup wizard against a data directory.
+COPY <<'EOF' /pkg/radiobot/usr/bin/radiobot-setup
+#!/bin/sh
+RADIOBOT_DATA="${RADIOBOT_DATA:-$HOME/.radiobot}" \
+RADIOBOT_BIN="${RADIOBOT_BIN:-/usr/bin/radiobot}" \
+exec /usr/lib/radiobot/setup-tui.sh "$@"
+EOF
+RUN chmod 755 /pkg/radiobot/usr/bin/radiobot-setup
+
+# postinst creates the runtime data directory and, on a fresh interactive
+# install, offers the first-time setup wizard. It writes to the invoking
+# user's ~/.radiobot when sudo was used, otherwise to /var/lib/radiobot.
+# The wizard must never fail the installation.
+COPY <<'EOF' /pkg/radiobot/DEBIAN/postinst
+#!/bin/sh
+set -e
+if [ "$(id -u)" -eq 0 ]; then
+    mkdir -p /var/lib/radiobot
+    chmod 755 /var/lib/radiobot
+fi
+
+if [ "$1" = "configure" ] && [ -z "${2:-}" ] && \
+   [ "${DEBIAN_FRONTEND:-}" != "noninteractive" ] && \
+   command -v whiptail >/dev/null 2>&1; then
+    DATA_DIR=/var/lib/radiobot
+    OWNER=""
+    if [ -n "${SUDO_USER:-}" ] && [ "$SUDO_USER" != "root" ]; then
+        USER_HOME=$(getent passwd "$SUDO_USER" | cut -d: -f6 || true)
+        if [ -n "$USER_HOME" ] && [ -d "$USER_HOME" ]; then
+            DATA_DIR="$USER_HOME/.radiobot"
+            OWNER="$SUDO_USER"
+        fi
+    fi
+    if [ ! -f "$DATA_DIR/ircbot.conf" ]; then
+        mkdir -p "$DATA_DIR"
+        ( RADIOBOT_DATA="$DATA_DIR" RADIOBOT_START=0 \
+            /usr/lib/radiobot/setup-tui.sh ) </dev/tty >/dev/tty 2>&1 || true
+        if [ -n "$OWNER" ]; then
+            chown -R "$OWNER:" "$DATA_DIR" 2>/dev/null || true
+        elif [ -f "$DATA_DIR/ircbot.conf" ]; then
+            chmod 600 "$DATA_DIR/ircbot.conf" 2>/dev/null || true
+        fi
+    fi
+fi
+exit 0
+EOF
+RUN chmod 755 /pkg/radiobot/DEBIAN/postinst
+
+# Compute shlibs:Depends from the binary and all plugin modules; whiptail is a
+# real dependency because postinst / first-run use the setup wizard.
+COPY --from=builder /src/build/shlibs-depends.txt /build/shlibs-depends.txt
+RUN set -e; \
+    shlibs_dep=$(sed -n 's/^shlibs:Depends=//p' /build/shlibs-depends.txt); \
+    cat > /pkg/radiobot/DEBIAN/control <<CTRL
+Package: radiobot
+Version: ${PKG_VERSION}
+Section: net
+Priority: optional
+Architecture: amd64
+Depends: ${shlibs_dep}, whiptail
+Maintainer: RadioBot <radiobot@example.com>
+Description: RadioBot IRC bot
+ RadioBot is an IRC bot for internet radio stations.
+CTRL
+
+# Build the .deb
+RUN dpkg-deb --build /pkg/radiobot /build/radiobot_${PKG_VERSION}_amd64.deb && \
+    dpkg-deb --info /build/radiobot_${PKG_VERSION}_amd64.deb
+
+CMD ["sh", "-c", "cp /build/*.deb /out/"]

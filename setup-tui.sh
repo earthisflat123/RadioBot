@@ -1,9 +1,17 @@
 #!/bin/bash
 # whiptail-based first-time setup wizard
+#
+# Environment knobs (defaults match the Docker layout):
+#   RADIOBOT_DATA   directory that holds ircbot.conf (default /radiobot/data)
+#   RADIOBOT_BIN    bot binary to exec after setup    (default ./radiobot)
+#   RADIOBOT_START  "1" = start the bot when done, "0" = just write the config
 set -e
 
-CONFIG="/radiobot/data/ircbot.conf"
-TEXTFILE="/radiobot/data/ircbot.text"
+DATA_DIR="${RADIOBOT_DATA:-/radiobot/data}"
+CONFIG="$DATA_DIR/ircbot.conf"
+TEXTFILE="$DATA_DIR/ircbot.text"
+RADIOBOT_BIN="${RADIOBOT_BIN:-./radiobot}"
+RADIOBOT_START="${RADIOBOT_START:-1}"
 TITLE="RadioBot Setup"
 W=70  # dialog width
 
@@ -29,16 +37,57 @@ has_plugin() {
     return 1
 }
 
-# ---- Welcome ----
-whiptail --title "$TITLE" --msgbox \
+# Called once ircbot.conf exists: either hand off to the bot, or just report
+# where the config was written (used when the .deb postinst runs the wizard).
+finish() {
+    if [ "$RADIOBOT_START" = "1" ]; then
+        whiptail --title "$TITLE" --msgbox \
+"Config written to:
+  $CONFIG
+
+RadioBot is starting now!" 10 $W
+        exec "$RADIOBOT_BIN" --conf="$CONFIG" --text="$TEXTFILE"
+    else
+        whiptail --title "$TITLE" --msgbox \
+"Config written to:
+  $CONFIG" 8 $W
+        exit 0
+    fi
+}
+
+mkdir -p "$DATA_DIR"
+
+# ---- Welcome / mode selection ----
+MODE=$(wt --title "$TITLE" --menu \
 "Welcome to RadioBot!
 
-This wizard will create your initial ircbot.conf.
+An ircbot.conf configuration is required before
+the bot can start." 15 $W 3 \
+    "wizard" "Run the setup wizard" \
+    "import" "Import an existing ircbot.conf" \
+    "skip"   "Configure later") || exit 0
+
+case "$MODE" in
+    skip) exit 0 ;;
+    import)
+        while true; do
+            SRC=$(wt --title "$TITLE — Import Config" \
+                --inputbox "Path to your existing ircbot.conf:" 10 $W "") || exit 0
+            if [ -f "$SRC" ]; then break; fi
+            err "File not found: $SRC"
+        done
+        cp "$SRC" "$CONFIG"
+        finish
+        ;;
+esac
+
+whiptail --title "$TITLE" --msgbox \
+"This wizard will create your initial ircbot.conf.
 All settings can be changed later by editing:
 
-  ./data/ircbot.conf
+  $CONFIG
 
-Press OK to continue." 14 $W
+Press OK to continue." 11 $W
 
 # ========== BASE ==========
 BOT_NICK=$(wt --title "$TITLE — Bot" \
@@ -156,13 +205,13 @@ fi
 ADJ_CONTENT=""
 if has_plugin "AutoDJ"; then
     ADJ_CONTENT=$(wt --title "$TITLE — AutoDJ" \
-        --inputbox "Music directory (blank = configure later):" 8 $W "/radiobot/data/music") || exit 0
+        --inputbox "Music directory (blank = configure later):" 8 $W "$DATA_DIR/music") || exit 0
 fi
 
 SDJ_CONTENT=""
 if has_plugin "SimpleDJ"; then
     SDJ_CONTENT=$(wt --title "$TITLE — SimpleDJ" \
-        --inputbox "Music directory (blank = configure later):" 8 $W "/radiobot/data/music") || exit 0
+        --inputbox "Music directory (blank = configure later):" 8 $W "$DATA_DIR/music") || exit 0
 fi
 
 CHATGPT_KEY=""
@@ -225,8 +274,8 @@ cat <<EOF
 
 Base {
     Nick $BOT_NICK
-    LogFile /radiobot/data/radiobot.log
-    PIDFile /radiobot/data/radiobot.pid
+    LogFile $DATA_DIR/radiobot.log
+    PIDFile $DATA_DIR/radiobot.pid
     Fork 0
 };
 
@@ -347,10 +396,4 @@ EOF
 fi
 } > "$CONFIG"
 
-whiptail --title "$TITLE" --msgbox \
-"Config written to:
-  $CONFIG
-
-RadioBot is starting now!" 10 $W
-
-exec ./radiobot --conf="$CONFIG" --text="$TEXTFILE"
+finish

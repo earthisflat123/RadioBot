@@ -57,36 +57,41 @@ _(Please let me know if I missed any.)_
 4. Run: cmake ..  
 5. make -j**X** (where **X** is however many CPU cores you have)
 
-### Debian package
+### Debian/Ubuntu package
 
-A self-contained Debian package can be built with Docker using the Trixie-based builder in the repo. From the repo root:
+A self-contained `.deb` package can be built with Docker using the multi-distro builder in the repo. From the repo root:
 
 ```bash
-./build-deb.sh
+./build-deb.sh            # interactive menu to pick the target
+./build-deb.sh noble      # or name the target directly
+./build-deb.sh all        # build all four targets
 ```
 
-This produces `radiobot_5.0.0_amd64.deb` (or whatever `VERSION` is set to) in the repository root. It uses `Dockerfile.debian-trixie` and handles the build entirely inside the container:
+Supported targets: `bookworm` (Debian 12), `trixie` (Debian 13), `jammy` (Ubuntu 22.04) and `noble` (Ubuntu 24.04). Each produces `radiobot_5.0.0-1~<distro>_amd64.deb` (or whatever `VERSION` is set to) in the repository root. It uses `Dockerfile.deb` and handles the build entirely inside the container:
 
-- Enables `main contrib non-free non-free-firmware` in Trixie APT so `libfaac-dev` can be installed.
-- Builds a static PCRE1 from upstream source, because Debian Trixie no longer ships `libpcre3-dev` (PCRE1).
+- Enables `contrib`/`non-free` in Debian APT so `libfaac-dev` can be installed (Ubuntu images already ship `multiverse`).
+- Installs `libwxgtk3.2-dev` where available, falling back to `libwxgtk3.0-gtk3-dev` (Ubuntu 22.04).
+- Installs `libpcre3-dev` where available, otherwise builds a static PCRE1 from upstream source (Debian Trixie no longer ships PCRE1).
 - Uses `default-libmysqlclient-dev` so MySQL client headers/pkg-config are available.
-- Compiles RadioBot and all plugins against the Trixie libraries.
+- Compiles RadioBot and all plugins against the target distro's libraries.
 - Computes `shlibs:Depends` with `dpkg-shlibdeps` and writes the final `DEBIAN/control`.
 
-Install the package on Debian Trixie with:
+Install the package on the matching distro with:
 
 ```bash
-sudo apt install ./radiobot_5.0.0_amd64.deb
+sudo apt install ./radiobot_5.0.0-1~noble_amd64.deb
 ```
 
-This resolves all runtime dependencies automatically. If you prefer `dpkg`, install the package and then fix dependencies:
+This resolves all runtime dependencies automatically (including `whiptail`, used by the setup wizard). On a fresh install, the package's `postinst` offers the whiptail setup wizard when a terminal is available — it can create a new config or import an existing `ircbot.conf`. If you installed with `sudo`, the config is written to your `~/.radiobot`; otherwise it goes to `/var/lib/radiobot` and is copied into your data directory on first run.
+
+If you prefer `dpkg`, install the package and then fix dependencies:
 
 ```bash
-sudo dpkg -i radiobot_5.0.0_amd64.deb
+sudo dpkg -i radiobot_5.0.0-1~noble_amd64.deb
 sudo apt-get -f install
 ```
 
-The package has been tested in a clean `debian:trixie` container. All `Depends:` packages resolve from the Trixie repositories with `contrib`/`non-free-firmware` enabled (only needed at build time for `libfaac-dev`; runtime dependencies are in `main`).
+Note: with `dpkg -i`, `postinst` runs before dependencies like `whiptail` are installed, so the install-time wizard is skipped — it runs on the first `radiobot` launch instead (or re-run it any time with `radiobot-setup`).
 
 After installation:
 
@@ -98,7 +103,7 @@ radiobot
 RADIOBOT_DATA=/srv/radiobot radiobot
 ```
 
-The first time it runs, it will complain that `ircbot.conf` is missing. Copy or generate a config file into your data directory (`~/.radiobot/ircbot.conf`) and then run `radiobot` again.
+If no `ircbot.conf` exists yet, `radiobot` launches the setup wizard when a terminal is available.
 
 The `radiobot` wrapper in `/usr/bin/radiobot` creates a data directory (default `~/.radiobot`, override with `RADIOBOT_DATA`), symlinks `ircbot.text` and `plugins` from `/usr/lib/radiobot`, and then launches the bot from there. This keeps runtime state in a user-writable location while the binaries stay under `/usr/lib/radiobot`.
 
@@ -109,7 +114,9 @@ The package installs:
 - `/usr/lib/radiobot/radiobot` — main binary
 - `/usr/lib/radiobot/plugins/*.so` — plugin modules
 - `/usr/lib/radiobot/ircbot.text` — static data file
-- `/usr/bin/radiobot` — wrapper that runs from `/var/lib/radiobot`
+- `/usr/lib/radiobot/setup-tui.sh` — whiptail first-time setup wizard
+- `/usr/bin/radiobot` — wrapper that runs from the user's data directory
+- `/usr/bin/radiobot-setup` — re-run the setup wizard (or import an existing `ircbot.conf`) any time
 - `/var/lib/radiobot` — runtime data directory, created by the `postinst` script
 
 
