@@ -10,7 +10,6 @@ Add-Type -AssemblyName System.Windows.Forms
 $script:LogFile = "C:\Temp\radiobot-native-build.log"
 
 $script:DefaultRepositories = @{
-    Fork     = 'https://github.com/earthisflat123/RadioBot.git'
     Upstream = 'https://github.com/DriftSolutions/RadioBot.git'
 }
 
@@ -50,7 +49,7 @@ function Test-Administrator {
 function Get-RepositoryUrl {
     param(
         [Parameter(Mandatory)]
-        [ValidateSet('Fork', 'Upstream', 'Other')]
+        [ValidateSet('Upstream', 'Other')]
         [string]$Choice,
 
         [string]$CustomUrl = ''

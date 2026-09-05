@@ -169,23 +169,12 @@ $logTimer.Add_Tick({
                 $progress.Value   = [Math]::Min($script:ProgressCurrent, $script:ProgressTotal)
                 $pct = [int]([Math]::Min(1.0, $script:ProgressCurrent / $script:ProgressTotal) * 100)
 
-                # ETA based on the rate observed so far (elapsed / work done).
-                if ($script:ProgressCurrent -gt 0) {
-                    $ratePerItem = $elapsed.Ticks / $script:ProgressCurrent
-                    $remaining   = [Math]::Max(0, $script:ProgressTotal - $script:ProgressCurrent)
-                    $eta = [TimeSpan]::FromTicks([long]($ratePerItem * $remaining))
-                } else {
-                    $eta = [TimeSpan]::FromSeconds($script:StepEstimateSeconds)
-                }
-
-                $lblProgress.Text = ("{0}: {1}/{2} ({3}%) | Elapsed: {4:hh\:mm\:ss} | ETA: {5:hh\:mm\:ss}" -f $script:CurrentStepName, $script:ProgressCurrent, $script:ProgressTotal, $pct, $elapsed, $eta)
+                $lblProgress.Text = ("{0}: {1}/{2} ({3}%) | Elapsed: {4:hh\:mm\:ss}" -f $script:CurrentStepName, $script:ProgressCurrent, $script:ProgressTotal, $pct, $elapsed)
             } else {
                 $pct = [int][Math]::Min(99, ($elapsed.TotalSeconds / $script:StepEstimateSeconds) * 100)
-                $etaSec = [Math]::Max(0, $script:StepEstimateSeconds - $elapsed.TotalSeconds)
-                $eta = [TimeSpan]::FromSeconds($etaSec)
                 $progress.Maximum = 100
                 $progress.Value = $pct
-                $lblProgress.Text = ("{0}: {1}% | Elapsed: {2:hh\:mm\:ss} | ETA: {3:hh\:mm\:ss}" -f $script:CurrentStepName, $pct, $elapsed, $eta)
+                $lblProgress.Text = ("{0}: {1}% | Elapsed: {2:hh\:mm\:ss}" -f $script:CurrentStepName, $pct, $elapsed)
             }
         }
 
@@ -295,28 +284,22 @@ $lblRepo.Size = New-Object System.Drawing.Size(400, 20)
 $lblRepo.Location = New-Object System.Drawing.Point(10, 10)
 $page0.Controls.Add($lblRepo)
 
-$rbFork = New-Object System.Windows.Forms.RadioButton
-$rbFork.Text = 'earthisflat123/RadioBot (recommended fork)'
-$rbFork.Location = New-Object System.Drawing.Point(10, 35)
-$rbFork.Size = New-Object System.Drawing.Size(500, 20)
-$rbFork.Checked = $true
-$page0.Controls.Add($rbFork)
-
 $rbUpstream = New-Object System.Windows.Forms.RadioButton
-$rbUpstream.Text = 'DriftSolutions/RadioBot (upstream)'
-$rbUpstream.Location = New-Object System.Drawing.Point(10, 60)
+$rbUpstream.Text = 'DriftSolutions/RadioBot'
+$rbUpstream.Location = New-Object System.Drawing.Point(10, 35)
 $rbUpstream.Size = New-Object System.Drawing.Size(500, 20)
+$rbUpstream.Checked = $true
 $page0.Controls.Add($rbUpstream)
 
 $rbOther = New-Object System.Windows.Forms.RadioButton
 $rbOther.Text = 'Other repository:'
-$rbOther.Location = New-Object System.Drawing.Point(10, 85)
+$rbOther.Location = New-Object System.Drawing.Point(10, 60)
 $rbOther.Size = New-Object System.Drawing.Size(130, 20)
 $page0.Controls.Add($rbOther)
 
 $txtOtherUrl = New-Object System.Windows.Forms.TextBox
 $txtOtherUrl.Size = New-Object System.Drawing.Size(700, 20)
-$txtOtherUrl.Location = New-Object System.Drawing.Point(150, 85)
+$txtOtherUrl.Location = New-Object System.Drawing.Point(150, 60)
 $txtOtherUrl.Enabled = $false
 $page0.Controls.Add($txtOtherUrl)
 
@@ -324,7 +307,7 @@ $rbOther.Add_CheckedChanged({ $txtOtherUrl.Enabled = $rbOther.Checked })
 
 $rbLocal = New-Object System.Windows.Forms.RadioButton
 $rbLocal.Text = 'I already have a local clone'
-$rbLocal.Location = New-Object System.Drawing.Point(10, 115)
+$rbLocal.Location = New-Object System.Drawing.Point(10, 90)
 $rbLocal.Size = New-Object System.Drawing.Size(200, 20)
 $page0.Controls.Add($rbLocal)
 
@@ -332,19 +315,19 @@ $lblPath = New-Object System.Windows.Forms.Label
 $lblPath.Text = 'Local / clone path:'
 $lblPath.AutoSize = $false
 $lblPath.Size = New-Object System.Drawing.Size(130, 20)
-$lblPath.Location = New-Object System.Drawing.Point(10, 145)
+$lblPath.Location = New-Object System.Drawing.Point(10, 120)
 $page0.Controls.Add($lblPath)
 
 $txtRepoDir = New-Object System.Windows.Forms.TextBox
 $txtRepoDir.Text = 'C:\RadioBot'
 $txtRepoDir.Size = New-Object System.Drawing.Size(600, 20)
-$txtRepoDir.Location = New-Object System.Drawing.Point(150, 145)
+$txtRepoDir.Location = New-Object System.Drawing.Point(150, 120)
 $page0.Controls.Add($txtRepoDir)
 
 $btnBrowse = New-Object System.Windows.Forms.Button
 $btnBrowse.Text = 'Browse...'
 $btnBrowse.Size = New-Object System.Drawing.Size(90, 23)
-$btnBrowse.Location = New-Object System.Drawing.Point(760, 143)
+$btnBrowse.Location = New-Object System.Drawing.Point(760, 118)
 $btnBrowse.Add_Click({
     $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
     $dlg.Description = 'Select the RadioBot repository folder'
@@ -358,18 +341,18 @@ $lblBranch = New-Object System.Windows.Forms.Label
 $lblBranch.Text = 'Branch to clone:'
 $lblBranch.AutoSize = $false
 $lblBranch.Size = New-Object System.Drawing.Size(130, 20)
-$lblBranch.Location = New-Object System.Drawing.Point(10, 175)
+$lblBranch.Location = New-Object System.Drawing.Point(10, 150)
 $page0.Controls.Add($lblBranch)
 
 $txtBranch = New-Object System.Windows.Forms.TextBox
 $txtBranch.Text = $script:Branch
 $txtBranch.Size = New-Object System.Drawing.Size(700, 20)
-$txtBranch.Location = New-Object System.Drawing.Point(150, 175)
+$txtBranch.Location = New-Object System.Drawing.Point(150, 150)
 $page0.Controls.Add($txtBranch)
 
 $chkUseArchive = New-Object System.Windows.Forms.CheckBox
 $chkUseArchive.Text = 'Use radiobot-windows-deps.7z dependency archive if it exists in the repo root (skips vcpkg builds)'
-$chkUseArchive.Location = New-Object System.Drawing.Point(10, 205)
+$chkUseArchive.Location = New-Object System.Drawing.Point(10, 180)
 $chkUseArchive.Size = New-Object System.Drawing.Size(800, 20)
 $chkUseArchive.Checked = $true
 $page0.Controls.Add($chkUseArchive)
@@ -378,18 +361,18 @@ $lblArchive = New-Object System.Windows.Forms.Label
 $lblArchive.Text = 'Archive path:'
 $lblArchive.AutoSize = $false
 $lblArchive.Size = New-Object System.Drawing.Size(100, 20)
-$lblArchive.Location = New-Object System.Drawing.Point(10, 235)
+$lblArchive.Location = New-Object System.Drawing.Point(10, 210)
 $page0.Controls.Add($lblArchive)
 
 $txtArchivePath = New-Object System.Windows.Forms.TextBox
 $txtArchivePath.Size = New-Object System.Drawing.Size(650, 20)
-$txtArchivePath.Location = New-Object System.Drawing.Point(100, 235)
+$txtArchivePath.Location = New-Object System.Drawing.Point(100, 210)
 $page0.Controls.Add($txtArchivePath)
 
 $btnBrowseArchive = New-Object System.Windows.Forms.Button
 $btnBrowseArchive.Text = 'Browse...'
 $btnBrowseArchive.Size = New-Object System.Drawing.Size(90, 23)
-$btnBrowseArchive.Location = New-Object System.Drawing.Point(760, 233)
+$btnBrowseArchive.Location = New-Object System.Drawing.Point(760, 208)
 $btnBrowseArchive.Add_Click({
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
     $dlg.Filter = '7z archive (*.7z)|*.7z'
@@ -667,8 +650,7 @@ function Start-LoggedProcess {
     $script:ProgressCurrent     = 0
     $script:BuildProgressProjects = @{}
     $progress.Value = 0
-    $eta = [TimeSpan]::FromSeconds($script:StepEstimateSeconds)
-    $lblProgress.Text = ("{0}: 0% | Elapsed: 00:00:00 | ETA: {1:hh\:mm\:ss}" -f $Step.Name, $eta)
+    $lblProgress.Text = ("{0}: 0% | Elapsed: 00:00:00" -f $Step.Name)
 
     $outFile = "C:\Temp\radiobot-wizard-$($Step.Name)-out.log"
     $errFile = "C:\Temp\radiobot-wizard-$($Step.Name)-err.log"
@@ -731,7 +713,7 @@ function Resolve-RepoPage {
             }
             $script:OEM = Join-Path $script:RepoDir 'windows-oem'
         } else {
-            $source = if ($rbFork.Checked) { 'Fork' } elseif ($rbUpstream.Checked) { 'Upstream' } else { 'Other' }
+            $source = if ($rbUpstream.Checked) { 'Upstream' } else { 'Other' }
             $url = Get-RepositoryUrl -Choice $source -CustomUrl $txtOtherUrl.Text.Trim()
             $script:RepoDir = $txtRepoDir.Text.Trim()
             $branch = if ([string]::IsNullOrWhiteSpace($txtBranch.Text)) { 'master' } else { $txtBranch.Text.Trim() }

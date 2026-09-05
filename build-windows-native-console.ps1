@@ -37,21 +37,19 @@ function Read-RepoSource {
     while ($true) {
         Write-Host ""
         Write-Host "Select the repository to clone/build:"
-        Write-Host "  1) earthisflat123/RadioBot (fork with Windows build fixes)"
-        Write-Host "  2) DriftSolutions/RadioBot (upstream)"
-        Write-Host "  3) Other (enter a custom git URL)"
-        Write-Host "  4) I already have a local clone, skip cloning"
-        $choice = Read-Host "Enter choice [1-4]"
+        Write-Host "  1) DriftSolutions/RadioBot (upstream)"
+        Write-Host "  2) Other (enter a custom git URL)"
+        Write-Host "  3) I already have a local clone, skip cloning"
+        $choice = Read-Host "Enter choice [1-3]"
 
         switch ($choice) {
-            '1' { return 'Fork' }
-            '2' { return 'Upstream' }
-            '3' {
+            '1' { return 'Upstream' }
+            '2' {
                 $url = Read-Host "Enter the git URL"
                 $script:CustomUrl = $url
                 return 'Other'
             }
-            '4' { return 'Local' }
+            '3' { return 'Local' }
             default { Write-Host "Invalid choice, try again." }
         }
     }

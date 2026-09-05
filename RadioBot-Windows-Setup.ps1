@@ -7,14 +7,14 @@
 
 .DESCRIPTION
     This script can be run before the RadioBot repository is cloned. It asks for
-    a repository (upstream, fork, or custom URL), clones it, and then launches
+    a repository (upstream or a custom URL), clones it, and then launches
     the in-repo native build wizard or console.
 
 .PARAMETER RepoDir
     Folder to clone into. Default is C:\RadioBot.
 
 .PARAMETER RepoUrl
-    Git URL to clone. If omitted, the default earthisflat123 fork is used.
+    Git URL to clone. If omitted, the upstream DriftSolutions repository is used.
 
 .PARAMETER Console
     Launch the console wizard instead of the WinForms GUI.
@@ -37,7 +37,6 @@ if (-not ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdenti
     throw 'This script must be run as Administrator.'
 }
 
-$DefaultFork = 'https://github.com/earthisflat123/RadioBot.git'
 $DefaultUpstream = 'https://github.com/DriftSolutions/RadioBot.git'
 $DefaultBranch = 'master'
 
@@ -101,52 +100,46 @@ if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
 
     $form = New-Object System.Windows.Forms.Form
     $form.Text = 'RadioBot Setup Launcher'
-    $form.Size = New-Object System.Drawing.Size(600, 320)
+    $form.Size = New-Object System.Drawing.Size(600, 260)
     $form.StartPosition = 'CenterScreen'
     $form.FormBorderStyle = 'FixedDialog'
     $form.MaximizeBox = $false
 
-    $rbFork = New-Object System.Windows.Forms.RadioButton
-    $rbFork.Text = 'earthisflat123/RadioBot (recommended)'
-    $rbFork.Location = New-Object System.Drawing.Point(20, 20)
-    $rbFork.Size = New-Object System.Drawing.Size(500, 20)
-    $rbFork.Checked = $true
-    $form.Controls.Add($rbFork)
-
     $rbUpstream = New-Object System.Windows.Forms.RadioButton
-    $rbUpstream.Text = 'DriftSolutions/RadioBot (upstream)'
-    $rbUpstream.Location = New-Object System.Drawing.Point(20, 45)
+    $rbUpstream.Text = 'DriftSolutions/RadioBot'
+    $rbUpstream.Location = New-Object System.Drawing.Point(20, 20)
     $rbUpstream.Size = New-Object System.Drawing.Size(500, 20)
+    $rbUpstream.Checked = $true
     $form.Controls.Add($rbUpstream)
 
     $rbOther = New-Object System.Windows.Forms.RadioButton
     $rbOther.Text = 'Other:'
-    $rbOther.Location = New-Object System.Drawing.Point(20, 70)
+    $rbOther.Location = New-Object System.Drawing.Point(20, 45)
     $rbOther.Size = New-Object System.Drawing.Size(80, 20)
     $form.Controls.Add($rbOther)
 
     $txtOther = New-Object System.Windows.Forms.TextBox
     $txtOther.Size = New-Object System.Drawing.Size(460, 20)
-    $txtOther.Location = New-Object System.Drawing.Point(110, 70)
+    $txtOther.Location = New-Object System.Drawing.Point(110, 45)
     $txtOther.Enabled = $false
     $form.Controls.Add($txtOther)
     $rbOther.Add_CheckedChanged({ $txtOther.Enabled = $rbOther.Checked })
 
     $lblPath = New-Object System.Windows.Forms.Label
     $lblPath.Text = 'Clone to:'
-    $lblPath.Location = New-Object System.Drawing.Point(20, 105)
+    $lblPath.Location = New-Object System.Drawing.Point(20, 80)
     $lblPath.Size = New-Object System.Drawing.Size(80, 20)
     $form.Controls.Add($lblPath)
 
     $txtPath = New-Object System.Windows.Forms.TextBox
     $txtPath.Text = $RepoDir
     $txtPath.Size = New-Object System.Drawing.Size(390, 20)
-    $txtPath.Location = New-Object System.Drawing.Point(110, 105)
+    $txtPath.Location = New-Object System.Drawing.Point(110, 80)
     $form.Controls.Add($txtPath)
 
     $btnBrowse = New-Object System.Windows.Forms.Button
     $btnBrowse.Text = 'Browse...'
-    $btnBrowse.Location = New-Object System.Drawing.Point(505, 103)
+    $btnBrowse.Location = New-Object System.Drawing.Point(505, 78)
     $btnBrowse.Size = New-Object System.Drawing.Size(90, 23)
     $btnBrowse.Add_Click({
         $dlg = New-Object System.Windows.Forms.FolderBrowserDialog
@@ -157,29 +150,28 @@ if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
 
     $lblBranch = New-Object System.Windows.Forms.Label
     $lblBranch.Text = 'Branch:'
-    $lblBranch.Location = New-Object System.Drawing.Point(20, 135)
+    $lblBranch.Location = New-Object System.Drawing.Point(20, 110)
     $lblBranch.Size = New-Object System.Drawing.Size(80, 20)
     $form.Controls.Add($lblBranch)
 
     $txtBranch = New-Object System.Windows.Forms.TextBox
     $txtBranch.Text = $Branch
     $txtBranch.Size = New-Object System.Drawing.Size(490, 20)
-    $txtBranch.Location = New-Object System.Drawing.Point(110, 135)
+    $txtBranch.Location = New-Object System.Drawing.Point(110, 110)
     $form.Controls.Add($txtBranch)
 
     $chkConsole = New-Object System.Windows.Forms.CheckBox
     $chkConsole.Text = 'Use console wizard instead of GUI'
-    $chkConsole.Location = New-Object System.Drawing.Point(20, 165)
+    $chkConsole.Location = New-Object System.Drawing.Point(20, 140)
     $chkConsole.Size = New-Object System.Drawing.Size(300, 20)
     $form.Controls.Add($chkConsole)
 
     $btnOK = New-Object System.Windows.Forms.Button
     $btnOK.Text = 'OK'
     $btnOK.Size = New-Object System.Drawing.Size(100, 30)
-    $btnOK.Location = New-Object System.Drawing.Point(380, 200)
+    $btnOK.Location = New-Object System.Drawing.Point(380, 175)
     $btnOK.Add_Click({
-        if ($rbFork.Checked) { $script:RepoUrl = $DefaultFork }
-        elseif ($rbUpstream.Checked) { $script:RepoUrl = $DefaultUpstream }
+        if ($rbUpstream.Checked) { $script:RepoUrl = $DefaultUpstream }
         else { $script:RepoUrl = $txtOther.Text.Trim() }
         $script:RepoDir = $txtPath.Text.Trim()
         $script:Branch = $txtBranch.Text.Trim()
@@ -191,7 +183,7 @@ if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
     $btnCancel = New-Object System.Windows.Forms.Button
     $btnCancel.Text = 'Cancel'
     $btnCancel.Size = New-Object System.Drawing.Size(100, 30)
-    $btnCancel.Location = New-Object System.Drawing.Point(490, 200)
+    $btnCancel.Location = New-Object System.Drawing.Point(490, 175)
     $btnCancel.Add_Click({
         $script:Cancelled = $true
         $form.Close()
@@ -208,7 +200,7 @@ if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
 }
 
 if ([string]::IsNullOrWhiteSpace($RepoUrl)) {
-    $RepoUrl = $DefaultFork
+    $RepoUrl = $DefaultUpstream
 }
 
 if (Test-Git) {
